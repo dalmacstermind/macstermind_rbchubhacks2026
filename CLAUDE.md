@@ -226,6 +226,8 @@ light/dark theme, shortcuts sheet, export check) and add the missing wireframe s
 |---|---|---|
 | Discard start and end of video | 60 s each | `window.trim_start_s`, `window.trim_end_s` |
 | Extra settling time allowed if sediment persists | up to 240 s (human confirms) | `window.max_extra_settle_s` |
+| Sediment check: settled below this score (frame change ÷ contrast) | 0.6 (placeholder, calibrate on real footage) | `window.settle_threshold` |
+| Sediment check: frames read per second / time it must stay settled | 2 fps / 10 s | `window.settle_scan_fps`, `window.settle_hold_s` |
 | Analysis window length | 15 min | `window.length_s` |
 | Subsample interval | every 60 s → 15 points | `subsample.interval_s` |
 | One analyzed unit | 1 second | `subsample.unit_s` |
@@ -238,6 +240,11 @@ light/dark theme, shortcuts sheet, export check) and add the missing wireframe s
 | Offset of point 1 from the window start | 0 s (to be confirmed with Coastal Action) | `subsample.first_point_offset_s` |
 | Full-window scan rate for species richness | 2 frames per second | `richness.scan_fps` |
 
+- **Analysis window:** `propose_window()` proposes it during processing (a later start if sediment
+  hasn't settled) and stores it in the `videos` table. It is **never applied without a person**:
+  subsample points and the richness scan only accept an `AnalysisWindow` confirmed via
+  `PATCH /videos/{id}`. Videos shorter than trim + window + trim are flagged `too_short` and can't
+  be confirmed or processed.
 - Each survey stores a snapshot of the protocol values it was processed with. Changes in Settings
   apply to new processing only; old results keep their values.
 - Only the frames needed are decoded: each point's ±`context_s` range and the full-window scan at
@@ -432,7 +439,8 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | Keep, extend | `GET /analyses/{jobId}` · `POST /analyses/{jobId}/cancel` | Status, %, per-video pipeline step, errors |
 | Keep | `GET /surveys` · `GET/PATCH/DELETE /surveys/{id}` | Surveys (= batches) |
 | New | `GET /surveys/{id}/results` | Videos with per-point counts, MeanCount, richness; image counts |
-| New | `PATCH /videos/{id}` | Confirm analysis window, correct recording date, confirm visibility |
+| Done (US-2.1) | `GET /surveys/{id}/videos` | Each video's proposed window, flags (`tooShort`, `settled`) and confirmed window |
+| Done (US-2.1) | `PATCH /videos/{id}` | Confirm analysis window (`windowStartS`, `windowEndS`); person from the `X-FinCount-User` header (URL-encoded, must be on the people list). Later: recording date, visibility |
 | New | `PATCH /points/{id}` | Review edit; keeps the original AI value |
 | New | `GET /media/{fileId}` | Stream a video or image (HTTP range requests so the player can seek) |
 | New | `GET /points/{id}/clip` | The saved ±context clip for a point |

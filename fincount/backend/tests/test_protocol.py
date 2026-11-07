@@ -1,17 +1,22 @@
 import logging
 from dataclasses import replace
+from datetime import datetime
 
 import pytest
 
 from aquavision.config import ClipsConfig, load_app_config, load_protocol_config
 from aquavision.frames import probe_video
-from aquavision.protocol import (WindowError, context_range, create_subsample_points, plan_subsample_points,
-                                 point_frames, richness_scan_frames, subsample_timestamps)
+from aquavision.protocol import (AnalysisWindow, WindowError, context_range, create_subsample_points,
+                                 plan_subsample_points, point_frames, richness_scan_frames, subsample_timestamps)
 from video_fixture import decode_index
 
 PROTOCOL = load_protocol_config()
 APP = load_app_config()
 NO_FFMPEG = replace(APP, clips=ClipsConfig(ffmpeg_path=None, ffmpeg_codec="libx264", opencv_fourcc="mp4v"))
+
+
+def confirmed(start, end, by="Alex"):
+    return AnalysisWindow("GX010021", start, end, by, datetime.now())
 
 
 def sub(**changes):
@@ -71,7 +76,7 @@ def test_plan_numbers_points_and_names_clips(tmp_path):
 def test_create_points_saves_one_clip_per_point(synthetic_video, tmp_path, caplog):
     protocol = replace(PROTOCOL, subsample=sub(interval_s=30))
     with caplog.at_level(logging.INFO):
-        points = create_subsample_points(synthetic_video, "GX010021", 30, 150, protocol, NO_FFMPEG, tmp_path)
+        points = create_subsample_points(synthetic_video, confirmed(30, 150), protocol, NO_FFMPEG, tmp_path)
     assert [p.timestamp_s for p in points] == [30, 60, 90, 120]
     for p in points:
         clip = probe_video(p.clip_path)
@@ -82,14 +87,14 @@ def test_create_points_saves_one_clip_per_point(synthetic_video, tmp_path, caplo
 
 def test_clip_of_a_point_near_the_start_is_clipped(synthetic_video, tmp_path):
     protocol = replace(PROTOCOL, subsample=sub(interval_s=60))
-    points = create_subsample_points(synthetic_video, "GX010021", 0, 180, protocol, NO_FFMPEG, tmp_path)
+    points = create_subsample_points(synthetic_video, confirmed(0, 180), protocol, NO_FFMPEG, tmp_path)
     assert [p.timestamp_s for p in points] == [0, 60, 120]
     assert probe_video(points[0].clip_path).frame_count == 51  # 0–5 s only
 
 
 def test_window_longer_than_the_video_is_rejected(synthetic_video, tmp_path):
     with pytest.raises(WindowError, match="only 03:00.0 long"):
-        create_subsample_points(synthetic_video, "GX010021", 60, 960, PROTOCOL, NO_FFMPEG, tmp_path)
+        create_subsample_points(synthetic_video, confirmed(60, 960), PROTOCOL, NO_FFMPEG, tmp_path)
 
 
 def test_point_frames_cover_plus_minus_context_in_memory(synthetic_video, tmp_path):
@@ -101,7 +106,15 @@ def test_point_frames_cover_plus_minus_context_in_memory(synthetic_video, tmp_pa
 
 
 def test_richness_scan_reads_the_whole_window_at_scan_fps(synthetic_video):
-    frames = list(richness_scan_frames(synthetic_video, "GX010021", 30, 150, PROTOCOL, APP))
+    frames = list(richness_scan_frames(synthetic_video, confirmed(30, 150), PROTOCOL, APP))
     assert len(frames) == 241  # 30.0, 30.5, … 150.0
     gaps = {round(b.t_s - a.t_s, 3) for a, b in zip(frames, frames[1:])}
     assert gaps == {0.5}
+
+
+def test_points_need_a_window_a_person_confirmed(synthetic_video, tmp_path):
+    with pytest.raises(WindowError, match="hasn't been confirmed"):
+        create_subsample_points(synthetic_video, confirmed(30, 150, by=""), PROTOCOL, NO_FFMPEG, tmp_path)
+    with pytest.raises(WindowError, match="hasn't been confirmed"):
+        richness_scan_frames(synthetic_video, confirmed(30, 150, by="  "), PROTOCOL, APP)
+    assert not list(tmp_path.iterdir())

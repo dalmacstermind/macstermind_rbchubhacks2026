@@ -8,24 +8,33 @@ import re
 import secrets
 import shutil
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from aquavision.config import load_app_config, load_protocol_config
+from aquavision.protocol import WindowError, validate_window
+
 from . import __version__
 from .db import Database
 from .pipeline import Jobs, model_status
 from .schemas import (AnalysisRequest, DetectionPatch, Frame, Health, Job, ModelStatus, Person, QcCountIn, QcData,
-                      Species, SpeciesIn, SpeciesPatch, Storage, SurveyData, SurveyInfo, SurveyPatch)
+                      Species, SpeciesIn, SpeciesPatch, Storage, SurveyData, SurveyInfo, SurveyPatch, Video,
+                      VideoWindowPatch)
 
 DATA_DIR = Path(os.environ.get("FINCOUNT_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 # The desktop app passes a random token so other programs (or web pages) on this PC can't use the API.
 # When it's not set (development), no token is needed.
 TOKEN = os.environ.get("FINCOUNT_TOKEN", "")
 
+# Protocol and app settings (config/*.yaml), loaded once at start-up and passed to the pipeline.
+protocol = load_protocol_config()
+app_config = load_app_config()
+
 db = Database(DATA_DIR / "fincount.db")
-jobs = Jobs(db, DATA_DIR)
+jobs = Jobs(db, DATA_DIR, protocol, app_config)
 
 
 def check_token(x_fincount_token: str = Header(""), token: str = Query("")):
@@ -173,6 +182,33 @@ def delete_survey(survey_id: int):
     db.delete_survey(survey_id)
     shutil.rmtree(jobs.surveys_dir() / str(survey_id), ignore_errors=True)
     return Response(status_code=204)
+
+
+@app.get("/surveys/{survey_id}/videos", response_model=list[Video], tags=["surveys"])
+def list_videos(survey_id: int):
+    videos = db.list_videos(survey_id)
+    if videos is None:
+        raise HTTPException(404, "No such survey")
+    return videos
+
+
+@app.patch("/videos/{video_id}", response_model=Video, tags=["surveys"])
+def confirm_window(video_id: int, body: VideoWindowPatch, x_fincount_user: str = Header("")):
+    """Confirm or change a video's analysis window. The app sends who's working, URL-encoded."""
+    person = unquote(x_fincount_user).strip()
+    if not person or not db.person_exists(person):
+        raise HTTPException(400, "Pick who's working first, so the window is saved with your name.")
+    video = db.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "No such video")
+    if video.too_short:
+        raise HTTPException(422, f"{video.file_name} is too short for the protocol, so its window can't be "
+                                 "confirmed or processed.")
+    try:
+        validate_window(body.window_start_s, body.window_end_s, video.duration_s, video.fps, protocol.window)
+    except WindowError as e:
+        raise HTTPException(422, str(e))
+    return db.confirm_window(video_id, body.window_start_s, body.window_end_s, person)
 
 
 @app.get("/frames/{frame_id}/image", response_class=FileResponse, tags=["surveys"])

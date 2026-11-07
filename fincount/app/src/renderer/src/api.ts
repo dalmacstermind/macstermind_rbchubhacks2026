@@ -1,6 +1,6 @@
 // Client for the FinCount back end (FastAPI, running on this computer).
 // Every screen goes through `api` — the endpoints are documented in API.md at the repo root.
-import type { BackendInfo, FinCountApi, Job, Progress, QcData, SurveyData } from "../../shared/api";
+import type { BackendInfo, FinCountApi, Job, Progress, QcData, SurveyData, Video } from "../../shared/api";
 
 let backend: BackendInfo = { url: "", token: "" };
 
@@ -12,12 +12,16 @@ export async function connect(): Promise<BackendInfo> {
 
 export class ApiError extends Error {}
 
-async function http<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function http<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   let res: Response;
   try {
     res = await fetch(backend.url + path, {
       method,
-      headers: { "X-FinCount-Token": backend.token, ...(body !== undefined && { "Content-Type": "application/json" }) },
+      headers: {
+        "X-FinCount-Token": backend.token,
+        ...(body !== undefined && { "Content-Type": "application/json" }),
+        ...extraHeaders,
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -100,6 +104,16 @@ export const api: FinCountApi = {
     },
     update: (id, patch) => http("PATCH", `/surveys/${id}`, patch),
     remove: (id) => http("DELETE", `/surveys/${id}`),
+    videos: (id) => http<Video[]>("GET", `/surveys/${id}/videos`),
+  },
+
+  videos: {
+    // Who's working goes in a header. HTTP headers can't carry letters like "ë",
+    // so the name is URL-encoded here and decoded by the back end.
+    confirmWindow: (id, startS, endS, person) =>
+      http<Video>("PATCH", `/videos/${enc(id)}`, { windowStartS: startS, windowEndS: endS }, {
+        "X-FinCount-User": enc(person),
+      }),
   },
 
   detections: { update: (id, patch) => http("PATCH", `/detections/${id}`, patch) },
