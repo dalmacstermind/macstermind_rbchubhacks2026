@@ -7,14 +7,18 @@ as a background job, saves the pictures and writes the results to the database.
 Demo mode (no model files): the old stub below still runs, and the app shows "Demo mode" so
 sample results are never presented as live inference (CLAUDE.md, hard constraint 7).
 """
+import logging
 import random
 import shutil
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator
+
+import queue
 
 import cv2
 import numpy as np
@@ -22,15 +26,17 @@ import numpy as np
 from aquavision import device
 from aquavision.analyse import IMAGE_EXT as AV_IMAGE_EXT
 from aquavision.analyse import Analyser, Cancelled, FileResult, read_image
-from aquavision.config import (AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_app_config,
-                               load_protocol_config, load_vision_config)
-from aquavision.ingest import recorded_date, transect_stat
+from aquavision.config import AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_vision_config
 from aquavision.detect import CfdDetector, ModelMissingError
+from aquavision.frames import probe_video
+from aquavision.ingest import recorded_date, transect_stat
+from aquavision.protocol import AnalysisWindow, WindowProposal, propose_window
 from aquavision.species import BioClipEncoder, ReferenceIndex, crop_box, match
 
 from .db import Database
 from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus, Reidentified
 
+log = logging.getLogger(__name__)
 SAMPLE_DIR = Path(__file__).parent / "sample"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv"}
@@ -283,8 +289,9 @@ class _JobState:
 
 
 class Jobs:
-    def __init__(self, db: Database, data_dir: Path):
+    def __init__(self, db: Database, data_dir: Path, protocol: ProtocolConfig, app: AppConfig):
         self.db, self.data_dir = db, data_dir
+        self.protocol, self.app = protocol, app
         self.jobs: dict[str, _JobState] = {}
         self.lock = threading.Lock()
 
@@ -346,6 +353,10 @@ class Jobs:
 
                 update(base, 0, f"Opening {src.name}")
                 try:
+                    proposal = None
+                    if src.suffix.lower() in VIDEO_EXT:
+                        update(base, 0, f"{src.name}: checking the analysis window")
+                        proposal = self._propose_window(job.survey_id, src)
                     for pic in extract_pictures(src, out_dir, f"f{i + 1}", req.sampling, req.enhance, progress):
                         if state.cancel.is_set():
                             raise InterruptedError
@@ -358,6 +369,9 @@ class Jobs:
                         self.db.add_frame(job.survey_id, src.name, pic.timestamp, str(pic.path), dets, clarity)
                     status.state = "done"
                     status.detail = f"{pictures} picture{'s' if pictures != 1 else ''} · {found} possible fish"
+                    if proposal is not None:
+                        status.detail += (" · too short for the protocol (flagged)" if proposal.too_short
+                                          else " · analysis window waiting for confirmation")
                 except InterruptedError:
                     raise
                 except Exception as e:  # one bad file never stops the rest of the batch
@@ -406,11 +420,12 @@ class Jobs:
     def _run_real(self, state: _JobState, req: AnalysisRequest, out_dir: Path, update):
         """The real pipeline (aquavision) for every file of the survey. One bad file never stops the rest.
 
-        Videos: protocol analysis window, subsample points (with context clips) and the richness scan.
+        Videos: only the analysis window is proposed here (US-2.1). Counting at the subsample points starts
+        when a person confirms the window (count_video), never before.
         Images: detected and identified on their own; never part of MeanCount.
         """
         job = state.job
-        protocol, app_cfg = load_protocol_config(), load_app_config()  # snapshot for this survey
+        self._remember_settings(job.survey_id, req)
         update(0, 0, "Loading the fish detector and species model")
         try:
             analyser = VISION.analyser()
@@ -438,23 +453,10 @@ class Jobs:
                     pics, found, fish = self._store_result(job.survey_id, src, res, req, registry, out_dir, None)
                     status.detail = f"Photo · {found} box{'es' if found != 1 else ''}"
                 else:
-                    res = analyser.analyse_video(src, key, protocol=protocol, app=app_cfg,
-                                                 clip_dir=out_dir / "clips" / key, enhance=req.enhance, index=index,
-                                                 save_picture=save, on_progress=progress,
-                                                 cancelled=state.cancel.is_set)
-                    transect, stat = transect_stat(f)
-                    when = recorded_date(f)
-                    w = res.window
-                    video_id = self.db.add_video(job.survey_id, key, src.name, str(src), w.duration_s, w.fps,
-                                                 w.start_s, w.end_s, w.note,
-                                                 when.isoformat() if when else req.survey_date, transect or "",
-                                                 stat or "")
-                    for pt in res.points:
-                        self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
-                    pics, found, fish = self._store_result(job.survey_id, src, res, req, registry, out_dir, video_id)
-                    status.detail = (f"{len(res.points)} point{'s' if len(res.points) != 1 else ''} · "
-                                     f"{pics} pictures · {fish} tracked organism{'s' if fish != 1 else ''}"
-                                     + (" · shorter than the protocol window" if w.note else ""))
+                    update(base, 0, f"{src.name}: checking the analysis window")
+                    proposal = self._propose_window(job.survey_id, src, key, req.survey_date)
+                    status.detail = ("too short for the protocol (flagged, not processed)" if proposal.too_short
+                                     else "analysis window waiting for confirmation")
                 status.state = "done"
             except Cancelled:
                 raise InterruptedError from None
@@ -467,6 +469,78 @@ class Jobs:
         self.db.set_survey_status(job.survey_id, "done")
         update(100, 4, "Done")
         job.state = "done"
+    def _propose_window(self, survey_id: int, src: Path, file_key: str = "", survey_date: str = "") -> WindowProposal:
+        """Propose the analysis window and store it for staff to confirm. Never confirms it."""
+        info = probe_video(src)  # an unreadable video fails here with a plain-English error
+        proposal = propose_window(src, self.protocol, self.app)
+        video_id = self.db.add_video(survey_id, src.name, str(src), info.duration_s, info.fps, proposal)
+        transect, stat = transect_stat(str(src))
+        when = recorded_date(str(src))
+        self.db.set_video_details(video_id, file_key or f"v{video_id}", when.isoformat() if when else survey_date,
+                                  transect or "", stat or "")
+        return proposal
+
+    def _remember_settings(self, survey_id: int, req: AnalysisRequest):
+        """Counting happens later (after a window is confirmed), with the settings the survey started with."""
+        self.db.run("UPDATE surveys SET enhance = ?, ignore_specks = ? WHERE id = ?",
+                    int(req.enhance), int(req.ignore_specks), survey_id)
+
+    # ── Counting at the subsample points, after a person confirmed the window ──
+
+    def count_video(self, video_id: int) -> None:
+        """Queue point counting for one video. Runs one video at a time in the background."""
+        self.db.set_count_state(video_id, "queued", "Waiting to count")
+        with self.lock:
+            if not hasattr(self, "_count_queue"):
+                self._count_queue: queue.Queue[int] = queue.Queue()
+                threading.Thread(target=self._count_worker, daemon=True).start()
+        self._count_queue.put(video_id)
+
+    def _count_worker(self):
+        while True:
+            video_id = self._count_queue.get()
+            try:
+                self._count_one(video_id)
+            except Exception as e:  # shown to staff on the report
+                log.exception("Counting video %s failed", video_id)
+                self.db.set_count_state(video_id, "failed", str(e) or e.__class__.__name__)
+
+    def _count_one(self, video_id: int) -> None:
+        v = self.db.video_row(video_id)
+        if v is None:
+            return
+        if not v["confirmed_by"] or v["window_start_s"] is None:
+            raise RuntimeError("The analysis window hasn't been confirmed by a person yet.")
+        if not VISION.installed:
+            raise RuntimeError("Demo mode: no fish detector is installed, so the points can't be counted.")
+        survey = self.db.one("SELECT * FROM surveys WHERE id = ?", v["survey_id"])
+        req = AnalysisRequest(files=[v["path"]], enhance=bool(survey["enhance"]),
+                              ignore_specks=bool(survey["ignore_specks"]))
+        window = AnalysisWindow(v["file_key"] or f"v{video_id}", v["window_start_s"], v["window_end_s"],
+                                v["confirmed_by"], datetime.now())
+        for old in self.db.clear_video_counts(video_id):  # a re-confirmed window replaces the old count
+            Path(old).unlink(missing_ok=True)
+        self.db.set_count_state(video_id, "running", "Loading the models")
+        analyser = VISION.analyser()
+        out_dir = self.surveys_dir() / str(v["survey_id"])
+        key = window.video_id
+
+        def progress(fr: float):
+            self.db.set_count_state(video_id, "running", f"Counting the points: {int(fr * 100)}%")
+
+        res = analyser.analyse_video(
+            Path(v["path"]), key, window=window, protocol=self.protocol, app=self.app,
+            clip_dir=out_dir / "clips" / key, enhance=req.enhance,
+            index=ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name)),
+            save_picture=lambda img, name: _save_jpg(img, out_dir / f"{key}_{name}.jpg"),
+            on_progress=progress, cancelled=lambda: False)
+        for pt in res.points:
+            self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
+        registry = {s.id for s in self.db.list_species()}
+        pics, found, fish = self._store_result(v["survey_id"], Path(v["path"]), res, req, registry, out_dir,
+                                               video_id)
+        self.db.set_count_state(video_id, "done", f"{len(res.points)} points · {pics} pictures · "
+                                                  f"{fish} tracked organism{'s' if fish != 1 else ''}")
 
     def _discard(self, job: Job, out_dir: Path):
         self.db.delete_survey(job.survey_id)

@@ -21,6 +21,9 @@ class WindowConfig:
     trim_end_s: float
     max_extra_settle_s: float
     length_s: float
+    settle_threshold: float
+    settle_scan_fps: float
+    settle_hold_s: float
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,9 @@ def load_protocol_config(path: Path | None = None) -> ProtocolConfig:
             trim_end_s=_num(window, "window.trim_end_s", path, minimum=0),
             max_extra_settle_s=_num(window, "window.max_extra_settle_s", path, minimum=0),
             length_s=_num(window, "window.length_s", path, minimum=0, strict=True),
+            settle_threshold=_num(window, "window.settle_threshold", path, minimum=0, strict=True),
+            settle_scan_fps=_num(window, "window.settle_scan_fps", path, minimum=0, strict=True),
+            settle_hold_s=_num(window, "window.settle_hold_s", path, minimum=0),
         ),
         subsample=SubsampleConfig(
             interval_s=_num(sub, "subsample.interval_s", path, minimum=0, strict=True),

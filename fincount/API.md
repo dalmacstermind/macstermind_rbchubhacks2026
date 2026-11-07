@@ -79,7 +79,11 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 
 ### Protocol results (subsample points, MeanCount, species richness)
 
-Videos are analysed per the FFH protocol (`config/protocol.yaml`): analysis window, a point every
+Nothing is counted until a person confirms the video's analysis window (`PATCH /videos/{id}`, below):
+confirming starts the point counting in the background (`countState` in the results), and confirming
+a different window counts again from scratch. Videos too short for the protocol are flagged, not counted.
+
+Videos are analysed per the FFH protocol (`config/protocol.yaml`): confirmed window, a point every
 `subsample.interval_s`, each point's ±`context_s` clip tracked so one fish counts once, counted only
 within ±`count.tolerance_s`, plus a sparse full-window scan for species richness. Images get per-image
 counts and are never in MeanCount. **All counting happens in the back end**; results are recalculated
@@ -88,7 +92,7 @@ on every request, so labels and point edits show up at once.
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/surveys/{id}/results` | | `SurveyResults` |
-| PATCH | `/videos/{id}` | `{recordedAt?, transect?, stat?, visibility?, confirmWindow?, by}` | `204` |
+| PATCH | `/videos/{id}/details` | `{recordedAt?, transect?, stat?, visibility?}` | `204`. Recording details; the window itself is confirmed with `PATCH /videos/{id}` below |
 | PATCH | `/points/{id}` | `{totalFish?, invertebrates?, visibility?, notes?, by}` | `204`. Stored next to the AI's values; `-1` puts a count back to the AI's |
 | GET | `/points/{id}/clip` | | the ±context clip (MP4; token in the query) |
 
@@ -110,6 +114,20 @@ worm, snail.
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | POST | `/surveys/{id}/evaluation` | `{path?}` | `Evaluation`. `path`: a CSV of hand counts on this computer (`video, point, total_fish`); no path: the points staff reviewed |
+
+### Videos and analysis windows
+
+The window is proposed while a survey is processed (a later start if sediment hasn't settled) and is
+**never used until a person confirms it**. Rules come from `backend/config/protocol.yaml`.
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/surveys/{id}/videos` | | `Video[]`. `404` if the survey doesn't exist |
+| PATCH | `/videos/{id}` | `{windowStartS, windowEndS}` + header `X-FinCount-User: <URL-encoded name>` | `Video`. `400` if the person is missing or not on the people list; `404` no such video; `422` with a plain-English reason if the times break the protocol or the video is too short |
+
+Times are checked against the protocol: start no earlier than the trim (60 s), no later than the trim
+plus extra settling time (300 s), exactly the window length (900 s, one frame either way), and ending
+before the last 60 s of the video.
 
 ### Blind QC
 
@@ -178,6 +196,11 @@ SurveyInfo     {
                 }
 
 SurveyData     { survey: SurveyInfo, frames: Frame[] }
+Video          { id: string, surveyId: number, fileName: string, durationS: number, fps: number,
+                 proposedStartS: number | null, proposedEndS: number | null, proposedReason: string,
+                 settled: boolean | null, tooShort: boolean, settleScore: number | null,
+                 windowStartS: number | null, windowEndS: number | null,   // null until a person confirms
+                 confirmedBy: string, confirmedAt: string }
 
 Frame          {
                     id: string,
@@ -228,9 +251,12 @@ SurveyResults  { videos: VideoResult[], images: ImageResult[], unknownsRemaining
 
 VideoResult    {
                     id, name, recordedAt, transect, stat,
-                    windowStartS, windowEndS,
-                    windowNote: string,         // set when the video is shorter than the protocol window
-                    windowConfirmedBy: string,
+                    windowStartS, windowEndS: number | null,   // confirmed by a person; null until then
+                    proposedStartS, proposedEndS: number | null, proposedReason: string, settled: boolean | null,
+                    tooShort: boolean,          // flagged: not processed
+                    confirmedBy: string,
+                    countState: "" | "queued" | "running" | "done" | "failed",   // "" = waiting for confirmation
+                    countDetail: string,
                     points: PointResult[],
                     meanCount: number | null,   // final (staff values where set); zero points included
                     meanCountAi: number | null, // the AI's alone

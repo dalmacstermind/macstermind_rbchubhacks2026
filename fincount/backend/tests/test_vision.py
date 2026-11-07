@@ -18,6 +18,7 @@ from aquavision.config import ConfigError, load_vision_config
 from aquavision.detect import Detection, box_iou, nms
 from aquavision.species import NOVEL, UNKNOWN, ReferenceIndex, crop_box, match
 from aquavision.track import VideoTracker, image_tracks
+from conftest import confirm_and_count, use_short_protocol
 from video_fixture import make_video
 
 
@@ -133,6 +134,7 @@ def client(tmp_path, monkeypatch):
     import fincount_api.main as main
     from fincount_api import pipeline
     importlib.reload(main)
+    use_short_protocol(main)
     pipeline.set_vision(pipeline.Vision(load_vision_config(), detector=FakeDetector(), encoder=FakeEncoder()))
     return TestClient(main.app)
 
@@ -154,22 +156,25 @@ def _square_picture(path, colour=(40, 180, 220), border=20):
     return path
 
 
-def test_real_pipeline_tracks_identifies_and_reidentifies(client, tmp_path):
+def test_real_pipeline_tracks_identifies_and_reidentifies(client, tmp_path, synthetic_video):
     status = client.get("/model").json()
     assert status["demo"] is False and status["device"] in ("gpu", "cpu")
 
-    video = make_video(tmp_path / "T1_STAT1.mp4", seconds=6, fps=10)
-    job = _wait(client, client.post("/analyses", json={"site": "Test", "files": [str(video)], "sampling": 2,
+    # A clip too short for the protocol is flagged and not processed (US-2.1).
+    short = make_video(tmp_path / "T1_STAT1.mp4", seconds=6, fps=10)
+    job = _wait(client, client.post("/analyses", json={"files": [str(short)], "ignoreSpecks": False}).json())
+    assert job["state"] == "done" and "too short" in job["files"][0]["detail"]
+
+    job = _wait(client, client.post("/analyses", json={"site": "Test", "files": [str(synthetic_video)],
                                                        "ignoreSpecks": False}).json())
-    assert job["state"] == "done", job
-    assert "tracked organism" in job["files"][0]["detail"]
+    assert job["state"] == "done" and "waiting for confirmation" in job["files"][0]["detail"]
+    assert confirm_and_count(client, job["surveyId"])["videos"][0]["countState"] == "done"
     data = client.get(f"/surveys/{job['surveyId']}").json()
     dets = [d for f in data["frames"] for d in f["detections"]]
     assert len(data["frames"]) >= 10 and dets
-    # Too short for the protocol window: one point across the whole video, plus the richness scan.
-    assert "shorter than the protocol window" in job["files"][0]["detail"]
     point_tracks = {d["trackId"] for d in dets if "-p1-" in d["trackId"]}
-    assert 1 <= len(point_tracks) <= 2  # one square → one track (2 if it wraps around the picture)
+    # One square → one track per pass; it wraps across the picture every ~3.7 s, so ≤ 4 in a ±5 s clip.
+    assert 1 <= len(point_tracks) <= 4
     assert all(d["speciesId"] == "unknown" and d["aiLabel"] == "Unknown" for d in dets)  # no references yet
     assert all(f["clarity"] is not None for f in data["frames"])
 

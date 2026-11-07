@@ -38,15 +38,17 @@ def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResul
     labels = _labels(db, survey_id, registry)
     remaining = unknowns(db, survey_id).remaining_by_file
     videos = []
-    for v in db.videos(survey_id):
+    for v in db.video_rows(survey_id):
         points = db.points(v["id"])
         frames = {p["point_no"]: db.point_frames(v["id"], p["point_no"]) for p in points}
         s = av_results.video_summary(v, points, db.video_sightings(v["id"]), frames, labels, threshold, protocol,
                                      clarity_cfg)
         videos.append(VideoOut(
             id=s.id, name=s.name, recorded_at=s.recorded_at, transect=s.transect, stat=s.stat,
-            window_start_s=s.window_start_s, window_end_s=s.window_end_s, window_note=s.window_note,
-            window_confirmed_by=s.window_confirmed_by, mean_count=s.mean_count, mean_count_ai=s.mean_count_ai,
+            window_start_s=s.window_start_s, window_end_s=s.window_end_s, proposed_start_s=s.proposed_start_s,
+            proposed_end_s=s.proposed_end_s, proposed_reason=s.proposed_reason, settled=s.settled,
+            too_short=s.too_short, confirmed_by=s.confirmed_by, count_state=s.count_state,
+            count_detail=s.count_detail, mean_count=s.mean_count, mean_count_ai=s.mean_count_ai,
             species_richness=s.species_richness, species_found=s.species_found, clarity_index=s.clarity_index,
             clarity_min=s.clarity_min, clarity_max=s.clarity_max, clarity_trend=s.clarity_trend,
             visibility=s.visibility, reviewed=s.reviewed, unknowns_remaining=remaining.get(s.name, 0),

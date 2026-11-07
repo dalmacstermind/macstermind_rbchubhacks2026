@@ -10,16 +10,6 @@ import json
 import uuid
 
 PROTOCOL_SCHEMA = """
-CREATE TABLE IF NOT EXISTS videos (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-  file_key TEXT NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL,
-  duration_s REAL NOT NULL, fps REAL NOT NULL,
-  window_start_s REAL NOT NULL, window_end_s REAL NOT NULL, window_note TEXT NOT NULL DEFAULT '',
-  window_confirmed_by TEXT NOT NULL DEFAULT '',
-  recorded_at TEXT NOT NULL DEFAULT '', transect TEXT NOT NULL DEFAULT '', stat TEXT NOT NULL DEFAULT '',
-  visibility TEXT NOT NULL DEFAULT ''
-);
 CREATE TABLE IF NOT EXISTS points (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
@@ -40,6 +30,17 @@ CREATE TABLE IF NOT EXISTS labels (
 """
 
 PROTOCOL_MIGRATIONS = [
+    # Added to the videos table (db.py, US-2.1): details read from the path, and point counting status.
+    ("videos", "recorded_at", "TEXT NOT NULL DEFAULT ''"),
+    ("videos", "transect", "TEXT NOT NULL DEFAULT ''"),
+    ("videos", "stat", "TEXT NOT NULL DEFAULT ''"),
+    ("videos", "visibility", "TEXT NOT NULL DEFAULT ''"),
+    ("videos", "file_key", "TEXT NOT NULL DEFAULT ''"),
+    ("videos", "count_state", "TEXT NOT NULL DEFAULT ''"),  # "" | "queued" | "running" | "done" | "failed"
+    ("videos", "count_detail", "TEXT NOT NULL DEFAULT ''"),
+    # The settings a survey started with, so counting after a window is confirmed uses the same ones.
+    ("surveys", "enhance", "INTEGER NOT NULL DEFAULT 1"),
+    ("surveys", "ignore_specks", "INTEGER NOT NULL DEFAULT 1"),
     ("frames", "video_id", "INTEGER"),
     ("frames", "point_no", "INTEGER"),
     ("frames", "t_s", "REAL"),
@@ -53,22 +54,39 @@ class ProtocolStore:
 
     # ── videos and points ──
 
-    def add_video(self, survey_id: int, file_key: str, name: str, path: str, duration_s: float, fps: float,
-                  window_start_s: float, window_end_s: float, window_note: str, recorded_at: str, transect: str,
-                  stat: str) -> int:
-        return self.run("INSERT INTO videos (survey_id, file_key, name, path, duration_s, fps, window_start_s, "
-                        "window_end_s, window_note, recorded_at, transect, stat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                        survey_id, file_key, name, path, duration_s, fps, window_start_s, window_end_s, window_note,
-                        recorded_at, transect, stat)
+    def set_video_details(self, video_id: int, file_key: str, recorded_at: str, transect: str, stat: str):
+        self.run("UPDATE videos SET file_key = ?, recorded_at = ?, transect = ?, stat = ? WHERE id = ?",
+                 file_key, recorded_at, transect, stat, video_id)
+
+    def set_count_state(self, video_id: int, state: str, detail: str = ""):
+        self.run("UPDATE videos SET count_state = ?, count_detail = ? WHERE id = ?", state, detail, video_id)
+
+    def clear_video_counts(self, video_id: int):
+        """Before counting a (re)confirmed window: remove the previous count's points, pictures and labels."""
+        r = self.video_row(video_id)
+        if not r:
+            return []
+        frames = self.all("SELECT image_path FROM frames WHERE video_id = ?", video_id)
+        tracks = [t["track_id"] for t in self.all(
+            "SELECT DISTINCT d.track_id FROM detections d JOIN frames f ON f.id = d.frame_id WHERE f.video_id = ?",
+            video_id)]
+        with self.lock, self.conn:
+            self.conn.execute("DELETE FROM points WHERE video_id = ?", (video_id,))
+            self.conn.execute("DELETE FROM frames WHERE video_id = ?", (video_id,))
+            self.conn.executemany("DELETE FROM track_vectors WHERE survey_id = ? AND track_id = ?",
+                                  [(r["survey_id"], t) for t in tracks])
+            self.conn.executemany("DELETE FROM labels WHERE survey_id = ? AND track_id = ?",
+                                  [(r["survey_id"], t) for t in tracks])
+        return [f["image_path"] for f in frames]
 
     def add_point(self, video_id: int, point_no: int, timestamp_s: float, clip_path: str) -> int:
         return self.run("INSERT INTO points (video_id, point_no, timestamp_s, clip_path) VALUES (?,?,?,?)",
                         video_id, point_no, timestamp_s, clip_path)
 
-    def videos(self, survey_id: int):
+    def video_rows(self, survey_id: int):
         return self.all("SELECT * FROM videos WHERE survey_id = ? ORDER BY id", survey_id)
 
-    def video(self, video_id: int):
+    def video_row(self, video_id: int):
         return self.one("SELECT * FROM videos WHERE id = ?", video_id)
 
     def points(self, video_id: int):
@@ -78,10 +96,11 @@ class ProtocolStore:
         return self.one("SELECT p.*, v.survey_id FROM points p JOIN videos v ON v.id = p.video_id WHERE p.id = ?",
                         point_id)
 
-    def update_video(self, video_id: int, fields: dict) -> bool:
-        allowed = {"recorded_at", "transect", "stat", "visibility", "window_confirmed_by"}
+    def update_video_details(self, video_id: int, fields: dict) -> bool:
+        """Recording date, Transect, STAT and confirmed visibility (the window is confirm_window in db.py)."""
+        allowed = {"recorded_at", "transect", "stat", "visibility"}
         sets = {k: v for k, v in fields.items() if k in allowed and v is not None}
-        if not self.video(video_id):
+        if not self.video_row(video_id):
             return False
         for k, v in sets.items():
             self.run(f"UPDATE videos SET {k} = ? WHERE id = ?", v, video_id)

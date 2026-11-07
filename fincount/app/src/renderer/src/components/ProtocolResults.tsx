@@ -33,6 +33,14 @@ export function ProtocolResults({
   // Reload whenever the survey changes, or something else on the page edited it.
   useEffect(load, [load, version]);
 
+  // While a video is being counted (after its window was confirmed), check again every 2 seconds.
+  const counting = !!results?.videos.some((v) => v.countState === "queued" || v.countState === "running");
+  useEffect(() => {
+    if (!counting) return;
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+  }, [counting, load]);
+
   if (error) return <p className="text-sm text-destructive">{error}</p>;
   if (!results) return <p className="text-sm text-muted-foreground">Loading the results…</p>;
   if (!results.videos.length && !results.images.length) return null;

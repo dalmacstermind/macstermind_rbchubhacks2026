@@ -112,10 +112,16 @@ export type VideoResult = {
   recordedAt: string;
   transect: string;
   stat: string;
-  windowStartS: number;
-  windowEndS: number;
-  windowNote: string; // set when the video was too short for the protocol window
-  windowConfirmedBy: string;
+  windowStartS: number | null; // confirmed by a person; nothing is counted until then
+  windowEndS: number | null;
+  proposedStartS: number | null; // what TIDE proposed (see Video)
+  proposedEndS: number | null;
+  proposedReason: string;
+  settled: boolean | null;
+  tooShort: boolean; // flagged: not processed
+  confirmedBy: string;
+  countState: "" | "queued" | "running" | "done" | "failed"; // "" = waiting for a confirmed window
+  countDetail: string;
   points: PointResult[];
   meanCount: number | null;
   meanCountAi: number | null;
@@ -156,13 +162,12 @@ export type PointPatch = {
   by: string;
 };
 
-export type VideoPatch = {
+/** Recording details (the window itself is confirmed with videos.confirmWindow). */
+export type VideoDetailsPatch = {
   recordedAt?: string;
   transect?: string;
   stat?: string;
   visibility?: string;
-  confirmWindow?: boolean;
-  by: string;
 };
 
 // ── Labelling unknown fish ──
@@ -239,6 +244,26 @@ export type Evaluation = {
   source: string;
 };
 
+/** One video in a survey: the analysis window TIDE proposed, and the one a person confirmed. */
+export type Video = {
+  id: string;
+  surveyId: number;
+  fileName: string;
+  durationS: number;
+  fps: number;
+  proposedStartS: number | null; // null when the video is too short for the protocol
+  proposedEndS: number | null;
+  proposedReason: string; // plain English, shown to staff
+  settled: boolean | null; // false: sediment still unsettled at the latest allowed start
+  tooShort: boolean; // flagged: can't be confirmed or processed
+  settleScore: number | null;
+  windowStartS: number | null; // confirmed by a person; null until then
+  windowEndS: number | null;
+  confirmedBy: string;
+  confirmedAt: string;
+};
+
+
 export type PickedFile = { path: string; name: string; size: number };
 export type SkippedFile = { name: string; reason: string };
 
@@ -298,8 +323,15 @@ export type FinCountApi = {
     unknowns: (id: number) => Promise<Unknowns>;
     /** Compare the AI's point counts with hand counts: a CSV file, or (no path) the points staff reviewed. */
     evaluate: (id: number, csvPath?: string) => Promise<Evaluation>;
+    /** Each video's proposed and confirmed analysis window. */
+    videos: (id: number) => Promise<Video[]>;
   };
-  videos: { update: (id: number, patch: VideoPatch) => Promise<void> };
+  videos: {
+    /** Confirm (or change) a video's analysis window, saved with the person's name. */
+    confirmWindow: (id: string, startS: number, endS: number, person: string) => Promise<Video>;
+    /** Correct the recording date, Transect or STAT, or confirm the video's visibility. */
+    details: (id: number, patch: VideoDetailsPatch) => Promise<void>;
+  };
   points: { update: (id: number, patch: PointPatch) => Promise<void> };
   labels: {
     add: (req: LabelRequest) => Promise<{ labelIds: string[]; remaining: number }>;

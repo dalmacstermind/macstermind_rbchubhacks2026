@@ -10,6 +10,7 @@ import type {
   SurveyData,
   SurveyResults,
   Unknowns,
+  Video,
 } from "../../shared/api";
 
 let backend: BackendInfo = { url: "", token: "" };
@@ -22,12 +23,16 @@ export async function connect(): Promise<BackendInfo> {
 
 export class ApiError extends Error {}
 
-async function http<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function http<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   let res: Response;
   try {
     res = await fetch(backend.url + path, {
       method,
-      headers: { "X-FinCount-Token": backend.token, ...(body !== undefined && { "Content-Type": "application/json" }) },
+      headers: {
+        "X-FinCount-Token": backend.token,
+        ...(body !== undefined && { "Content-Type": "application/json" }),
+        ...extraHeaders,
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -139,8 +144,18 @@ export const api: FinCountApi = {
       return { ...r, fish: r.fish.map((f) => ({ ...f, crop: imageUrl(f.crop) })) };
     },
     evaluate: (id, csvPath) => http("POST", `/surveys/${id}/evaluation`, { path: csvPath ?? null }),
+    videos: (id) => http<Video[]>("GET", `/surveys/${id}/videos`),
   },
-  videos: { update: (id, patch) => http("PATCH", `/videos/${id}`, patch) },
+
+  videos: {
+    // Who's working goes in a header. HTTP headers can't carry letters like "ë",
+    // so the name is URL-encoded here and decoded by the back end.
+    confirmWindow: (id, startS, endS, person) =>
+      http<Video>("PATCH", `/videos/${enc(id)}`, { windowStartS: startS, windowEndS: endS }, {
+        "X-FinCount-User": enc(person),
+      }),
+    details: (id, patch) => http("PATCH", `/videos/${id}/details`, patch),
+  },
   points: { update: (id, patch) => http("PATCH", `/points/${id}`, patch) },
   labels: {
     add: (req) => http("POST", "/labels", req),

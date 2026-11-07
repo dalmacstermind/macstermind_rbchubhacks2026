@@ -67,8 +67,12 @@ export function ReportView({
 
   const exportXlsx = async () => {
     setChecking(false);
-    const results = await api.surveys.results(survey.id).catch(() => null);
-    const buf = await buildWorkbook({ data, summary: s, species, open, person: person.name, results });
+    // The Videos sheet needs each video's analysis window; the Points and Images sheets need the results.
+    const [videos, results] = await Promise.all([
+      api.surveys.videos(survey.id),
+      api.surveys.results(survey.id).catch(() => null),
+    ]);
+    const buf = await buildWorkbook({ data, summary: s, species, open, videos, person: person.name, results });
     const path = await window.desktop.saveXlsx(fileName, buf);
     if (path) setSaved(path);
   };

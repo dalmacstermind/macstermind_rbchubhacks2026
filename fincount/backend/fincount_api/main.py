@@ -8,10 +8,14 @@ import re
 import secrets
 import shutil
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
+from aquavision.config import load_app_config, load_protocol_config
+from aquavision.protocol import WindowError, validate_window
 
 from . import __version__
 from .db import Database
@@ -22,15 +26,20 @@ from .pipeline import Jobs, model_status
 from .schemas import (AnalysisRequest, DetectionPatch, EvaluationIn, EvaluationOut, Frame, Health, Job, LabelIn,
                       LabelResult, ModelStatus, Person, PointPatch, QcCountIn, QcData, Reference,
                       ReferenceFromDetection, ReferencesIn, Reidentified, Species, SpeciesIn, SpeciesPatch, Storage,
-                      SurveyData, SurveyInfo, SurveyPatch, SurveyResults, Unknowns, VideoPatch)
+                      SurveyData, SurveyInfo, SurveyPatch, SurveyResults, Unknowns, Video, VideoDetailsPatch,
+                      VideoWindowPatch)
 
 DATA_DIR = Path(os.environ.get("FINCOUNT_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 # The desktop app passes a random token so other programs (or web pages) on this PC can't use the API.
 # When it's not set (development), no token is needed.
 TOKEN = os.environ.get("FINCOUNT_TOKEN", "")
 
+# Protocol and app settings (config/*.yaml), loaded once at start-up and passed to the pipeline.
+protocol = load_protocol_config()
+app_config = load_app_config()
+
 db = Database(DATA_DIR / "fincount.db")
-jobs = Jobs(db, DATA_DIR)
+jobs = Jobs(db, DATA_DIR, protocol, app_config)
 
 
 def check_token(x_fincount_token: str = Header(""), token: str = Query("")):
@@ -253,6 +262,35 @@ def delete_survey(survey_id: int):
     return Response(status_code=204)
 
 
+@app.get("/surveys/{survey_id}/videos", response_model=list[Video], tags=["surveys"])
+def list_videos(survey_id: int):
+    videos = db.list_videos(survey_id)
+    if videos is None:
+        raise HTTPException(404, "No such survey")
+    return videos
+
+
+@app.patch("/videos/{video_id}", response_model=Video, tags=["surveys"])
+def confirm_window(video_id: int, body: VideoWindowPatch, x_fincount_user: str = Header("")):
+    """Confirm or change a video's analysis window. The app sends who's working, URL-encoded."""
+    person = unquote(x_fincount_user).strip()
+    if not person or not db.person_exists(person):
+        raise HTTPException(400, "Pick who's working first, so the window is saved with your name.")
+    video = db.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "No such video")
+    if video.too_short:
+        raise HTTPException(422, f"{video.file_name} is too short for the protocol, so its window can't be "
+                                 "confirmed or processed.")
+    try:
+        validate_window(body.window_start_s, body.window_end_s, video.duration_s, video.fps, protocol.window)
+    except WindowError as e:
+        raise HTTPException(422, str(e))
+    confirmed = db.confirm_window(video_id, body.window_start_s, body.window_end_s, person)
+    jobs.count_video(video_id)  # count the subsample points in the confirmed window (in the background)
+    return confirmed
+
+
 @app.get("/frames/{frame_id}/image", response_class=FileResponse, tags=["surveys"])
 def frame_image(frame_id: int):
     path = db.frame_image(frame_id)
@@ -306,17 +344,12 @@ def survey_results_route(survey_id: int):
     return survey_results.build_results(db, survey_id, info.threshold)
 
 
-@app.patch("/videos/{video_id}", status_code=204, tags=["results"])
-def update_video(video_id: int, body: VideoPatch):
-    """Confirm the analysis window, correct the recording date / Transect / STAT, confirm visibility."""
+@app.patch("/videos/{video_id}/details", status_code=204, tags=["results"])
+def update_video_details(video_id: int, body: VideoDetailsPatch):
+    """Correct the recording date / Transect / STAT, or confirm the video's visibility category."""
     if body.recorded_at and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.recorded_at):
         raise HTTPException(422, "Date must look like 2025-08-20.")
-    fields = body.model_dump(exclude={"confirm_window", "by"})
-    if body.confirm_window:
-        if not body.by:
-            raise HTTPException(422, "Say who confirmed the analysis window.")
-        fields["window_confirmed_by"] = body.by
-    if not db.update_video(video_id, fields):
+    if not db.update_video_details(video_id, body.model_dump()):
         raise HTTPException(404, "No such video")
     return Response(status_code=204)
 

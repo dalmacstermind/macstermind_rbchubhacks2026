@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from video_fixture import make_video
+
 SAMPLE = Path(__file__).resolve().parent.parent / "fincount_api" / "sample" / "frame1.jpg"
 
 
@@ -35,8 +37,7 @@ def test_species_list_can_be_edited(client):
 
 
 def test_full_analysis_and_staff_check(client, tmp_path):
-    video = tmp_path / "survey.mp4"
-    video.write_bytes(b"not really a video")  # the stub doesn't read it
+    video = make_video(tmp_path / "survey.mp4", seconds=20, fps=5)  # real file: the window check reads it
     job = client.post("/analyses", json={"site": "Mahone Bay", "files": [str(video), str(SAMPLE)]}).json()
     assert job["state"] == "running"
     for _ in range(100):
@@ -124,8 +125,7 @@ def test_bad_file_does_not_stop_the_batch(client, tmp_path):
 
 
 def test_blind_qc_sample_and_counts(client, tmp_path):
-    video = tmp_path / "survey.mp4"
-    video.write_bytes(b"x")
+    video = make_video(tmp_path / "survey.mp4", seconds=20, fps=5)
     job = wait(client, client.post("/analyses", json={"files": [str(video)]}).json())
     sid = job["surveyId"]
     qc = client.get(f"/surveys/{sid}/qc", params={"percent": 50}).json()

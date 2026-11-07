@@ -1,8 +1,8 @@
-// Builds the Excel workbook for a survey: Points (protocol, per video), Images, Summary, Pictures, Read me.
-// The Points and Images rows come straight from GET /surveys/{id}/results: no counting happens here.
+// Builds the Excel workbook for a survey: Points (protocol, per video), Images, Summary, Pictures, Videos
+// and Read me. The Points and Images rows come straight from GET /surveys/{id}/results: no counting here.
 // Exports with open items are marked "Draft" and list what's still open on the Read me sheet.
 import ExcelJS from "exceljs";
-import type { SurveyData, SurveyResults } from "../../shared/api";
+import type { SurveyData, SurveyResults, Video } from "../../shared/api";
 import {
   STATUS_LABEL,
   UNKNOWN,
@@ -13,17 +13,76 @@ import {
   type Summary,
 } from "../../shared/survey";
 
+/** 75.5 -> "01:15.5". Times in the export use minutes:seconds, like the video player. */
+export function mmss(seconds: number | null): string {
+  if (seconds === null) return "";
+  const m = Math.floor(seconds / 60);
+  return `${String(m).padStart(2, "0")}:${(seconds - m * 60).toFixed(1).padStart(4, "0")}`;
+}
+
+export const VIDEO_COLUMNS = [
+  "Video",
+  "Length",
+  "Proposed window",
+  "Why this window",
+  "Window start (s)",
+  "Window end (s)",
+  "Window",
+  "Confirmed by",
+  "Confirmed at",
+  "Status",
+];
+
+/** One row per video for the Videos sheet. Only a window a person confirmed fills the window columns. */
+export function videoRows(videos: Video[]): (string | number)[][] {
+  return videos.map((v) => {
+    const confirmed = v.windowStartS !== null && v.windowEndS !== null;
+    const status = v.tooShort
+      ? "Too short for the protocol (flagged, not processed)"
+      : !confirmed
+        ? "Window not confirmed"
+        : v.settled === false
+          ? "Confirmed (sediment looked unsettled at the proposed start)"
+          : "Confirmed";
+    return [
+      v.fileName,
+      mmss(v.durationS),
+      v.proposedStartS === null ? "—" : `${mmss(v.proposedStartS)} – ${mmss(v.proposedEndS)}`,
+      v.proposedReason,
+      confirmed ? v.windowStartS! : "",
+      confirmed ? v.windowEndS! : "",
+      confirmed ? `${mmss(v.windowStartS)} – ${mmss(v.windowEndS)}` : "",
+      v.confirmedBy,
+      v.confirmedAt,
+      status,
+    ];
+  });
+}
+
+/** Window problems that make the export a draft (listed on the Read me sheet). */
+export function windowOpenItems(videos: Video[]): string[] {
+  const s = (n: number) => (n === 1 ? "" : "s");
+  const unconfirmed = videos.filter((v) => !v.tooShort && v.windowStartS === null).length;
+  const tooShort = videos.filter((v) => v.tooShort).length;
+  const items: string[] = [];
+  if (unconfirmed) items.push(`Analysis window not confirmed on ${unconfirmed} video${s(unconfirmed)}`);
+  if (tooShort) items.push(`${tooShort} video${s(tooShort)} too short for the protocol (flagged, not processed)`);
+  return items;
+}
+
 export async function buildWorkbook(opts: {
   data: SurveyData;
   summary: Summary;
   species: Species[];
   open: OpenItem[];
+  videos: Video[];
   person: string;
-  results: SurveyResults | null; // protocol results from the back end
+  results?: SurveyResults | null; // protocol results from the back end
 }): Promise<ArrayBuffer> {
-  const { data, summary: s, species, open, person, results } = opts;
+  const { data, summary: s, species, open, videos, person, results } = opts;
   const { survey, frames } = data;
-  const draft = open.length > 0;
+  const openTexts = [...open.map((o) => o.text), ...windowOpenItems(videos)];
+  const draft = openTexts.length > 0;
   const wb = new ExcelJS.Workbook();
   wb.creator = "TIDE";
   wb.created = new Date();
@@ -95,6 +154,13 @@ export async function buildWorkbook(opts: {
   }
   pics.columns.forEach((c, i) => (c.width = [34, 10, 8, 14, 22, 24, 20][i] ?? 12));
 
+  // Videos: analysis window per video (proposed by TIDE, confirmed by a person)
+  const vids = wb.addWorksheet("Videos");
+  vids.addRow(VIDEO_COLUMNS).eachCell((c) => Object.assign(c, bold));
+  videoRows(videos).forEach((r) => vids.addRow(r));
+  vids.columns.forEach((c, i) => (c.width = [30, 10, 20, 60, 16, 15, 20, 16, 20, 34][i] ?? 12));
+  vids.getColumn(4).alignment = { wrapText: true, vertical: "top" };
+
   // Read me
   const me = wb.addWorksheet("Read me");
   const rows: (string | number)[][] = [
@@ -119,7 +185,7 @@ export async function buildWorkbook(opts: {
   ];
   if (results && results.unknownsRemaining > 0)
     rows.push(["Unknown fish", `${results.unknownsRemaining} fish are still labelled Unknown (see the Label page)`]);
-  if (draft) rows.push([], ["Open items"], ...open.map((o) => ["", o.text]));
+  if (draft) rows.push([], ["Open items"], ...openTexts.map((t) => ["", t]));
   rows.forEach((r) => me.addRow(r));
   me.getRow(1).font = { bold: true, size: 14 };
   me.getColumn(1).width = 26;

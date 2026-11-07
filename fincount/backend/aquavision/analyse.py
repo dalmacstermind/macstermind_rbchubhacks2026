@@ -1,7 +1,7 @@
 """Vision pipeline for one file (used by the background job in fincount_api/pipeline.py).
 
 Videos follow the protocol (CLAUDE.md, Protocol rules):
-  1. Analysis window: discard window.trim_start_s and window.trim_end_s, keep at most window.length_s.
+  1. Analysis window: only a window a person confirmed (protocol.AnalysisWindow, US-2.1) is used.
   2. Subsample points every subsample.interval_s inside the window (protocol.py). For each point,
      only its ±subsample.context_s range is decoded (detect.context_fps pictures per second, the
      point's own moment always included), detected and tracked with its own tracker, and its
@@ -27,7 +27,7 @@ from .clips import save_clip
 from .config import AppConfig, ProtocolConfig, VisionConfig
 from .detect import Detection, Detector
 from .frames import iter_sampled_frames, probe_video
-from .protocol import context_range, plan_subsample_points
+from .protocol import AnalysisWindow, _require_confirmed, context_range, plan_subsample_points
 from .species import ReferenceIndex, SpeciesResult, crop_box, match
 from .track import VideoTracker, image_tracks
 
@@ -64,21 +64,12 @@ class PointPlan:
 
 
 @dataclass
-class VideoWindow:
-    start_s: float
-    end_s: float
-    duration_s: float
-    fps: float
-    note: str = ""  # set when the protocol window doesn't fit and the whole video was used
-
-
-@dataclass
 class FileResult:
     pictures: list[Picture]
     species: dict[str, SpeciesResult]  # track_id → result
     track_vectors: dict[str, np.ndarray]  # track_id → crop embeddings (kept for re-identification)
     track_crops: dict[str, np.ndarray]  # track_id → best crop (BGR), for labelling and reference pictures
-    window: VideoWindow | None = None  # videos only
+    window: AnalysisWindow | None = None  # videos only
     points: list[PointPlan] = field(default_factory=list)  # videos only
 
 
@@ -104,24 +95,6 @@ def read_image(path: Path) -> np.ndarray:
 def hhmmss(t: float) -> str:
     t = int(round(t))
     return f"{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}"
-
-
-def analysis_window(duration_s: float, fps: float, protocol: ProtocolConfig) -> VideoWindow:
-    """Protocol rule: discard the start and end, then keep at most window.length_s.
-
-    If that leaves no room for a single point, the whole video is used and a note says so (staff
-    must check it): a short test clip still gets results, but they are never presented as a
-    protocol window.
-    """
-    w = protocol.window
-    start = w.trim_start_s
-    end = min(duration_s - w.trim_end_s, start + w.length_s)
-    if end - start > protocol.subsample.first_point_offset_s:
-        return VideoWindow(start, end, duration_s, fps)
-    return VideoWindow(0.0, duration_s, duration_s, fps,
-                       f"This video ({hhmmss(duration_s)}) is shorter than the protocol needs (discard "
-                       f"{w.trim_start_s:g} s at the start and {w.trim_end_s:g} s at the end). Points were placed "
-                       "across the whole video: check before using these counts.")
 
 
 def _fit(img: np.ndarray, max_width: int) -> np.ndarray:
@@ -215,12 +188,13 @@ class Analyser:
 
     # ── videos (protocol) ──
 
-    def analyse_video(self, path: Path, file_key: str, *, protocol: ProtocolConfig, app: AppConfig,
-                      clip_dir: Path, enhance: bool, index: ReferenceIndex,
+    def analyse_video(self, path: Path, file_key: str, *, window: AnalysisWindow, protocol: ProtocolConfig,
+                      app: AppConfig, clip_dir: Path, enhance: bool, index: ReferenceIndex,
                       save_picture: Callable[[np.ndarray, str], Path], on_progress: Callable[[float], None],
                       cancelled: Callable[[], bool]) -> FileResult:
+        """Count one video inside a window a person confirmed (refuses any other)."""
+        _require_confirmed(window)
         info = probe_video(path)
-        window = analysis_window(info.duration_s, info.fps, protocol)
         plans = plan_subsample_points(file_key, window.start_s, window.end_s, protocol.subsample, clip_dir)
         ctx = protocol.subsample.context_s
         fps = self.cfg.detect.context_fps

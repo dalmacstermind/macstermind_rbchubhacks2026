@@ -1,7 +1,8 @@
 """Counting at subsample points, MeanCount, richness, labels and evaluation (CLAUDE.md, Protocol rules).
 
-Unit tests for the rules, then the whole flow through the API on the synthetic 3-minute video
-(window 60–120 s → one point at 60 s) with the TEST-ONLY detector/encoder from test_vision.
+Unit tests for the rules, then the whole flow through the API on the synthetic 3-minute video with a
+short test protocol (window 10–70 s → points at 10, 30, 50 s) and the TEST-ONLY detector/encoder.
+Counting only starts once a person confirms the proposed window (US-2.1).
 """
 import csv
 import importlib
@@ -17,6 +18,7 @@ from aquavision.count import Sighting, TrackLabel, count_image, count_point, mea
 from aquavision.evaluate import HumanCount, compare, pct_diff, read_human_csv
 from aquavision.ingest import recorded_date, transect_stat
 from aquavision.labels import effective_labels
+from conftest import confirm_and_count, use_short_protocol
 from test_vision import FakeDetector, FakeEncoder
 
 P = load_protocol_config()
@@ -117,6 +119,7 @@ def client(tmp_path, monkeypatch):
     import fincount_api.main as main
     from fincount_api import pipeline
     importlib.reload(main)
+    use_short_protocol(main)
     pipeline.set_vision(pipeline.Vision(load_vision_config(), detector=FakeDetector(), encoder=FakeEncoder()))
     return TestClient(main.app)
 
@@ -134,10 +137,13 @@ def _analyse(client, files):
 
 def test_points_meancount_labels_and_evaluation(client, synthetic_video, tmp_path):
     sid = _analyse(client, [str(synthetic_video)])
-    res = client.get(f"/surveys/{sid}/results").json()
+    # Nothing is counted until a person confirms the proposed window.
+    v = client.get(f"/surveys/{sid}/results").json()["videos"][0]
+    assert v["windowStartS"] is None and v["points"] == [] and v["countState"] == "" and v["proposedStartS"] == 10
+    res = confirm_and_count(client, sid)
     v = res["videos"][0]
-    assert (v["windowStartS"], v["windowEndS"], v["windowNote"]) == (60, 120, "")
-    assert [p["pointNo"] for p in v["points"]] == [1] and v["points"][0]["timestampS"] == 60
+    assert (v["windowStartS"], v["windowEndS"], v["confirmedBy"], v["countState"]) == (10, 70, "Ana", "done")
+    assert [(p["pointNo"], p["timestampS"]) for p in v["points"]] == [(1, 10), (2, 30), (3, 50)]
     p = v["points"][0]
     assert p["totalFish"] == 1 and p["unknown"] == 1 and p["ai"]["totalFish"] == 1 and v["meanCount"] == 1
     assert p["clip"] and client.get(p["clip"]).status_code == 200
@@ -168,7 +174,7 @@ def test_points_meancount_labels_and_evaluation(client, synthetic_video, tmp_pat
 
     # Drawing a box the AI missed, on the picture at the point, adds one organism…
     frames = client.get(f"/surveys/{sid}").json()["frames"]
-    at_point = next(f for f in frames if f["timestamp"] == "00:01:00")
+    at_point = next(f for f in frames if f["timestamp"] == "00:00:10")
     r = client.post("/labels", json={"surveyId": sid, "action": "invertebrate", "invertebrateType": "crab",
                                      "frameId": at_point["id"], "box": {"x": 2, "y": 80, "w": 10, "h": 10},
                                      "by": "Ana"})
@@ -187,7 +193,7 @@ def test_points_meancount_labels_and_evaluation(client, synthetic_video, tmp_pat
         .status_code == 204
     v = client.get(f"/surveys/{sid}/results").json()["videos"][0]
     assert (v["points"][0]["totalFish"], v["points"][0]["ai"]["totalFish"], v["meanCount"], v["meanCountAi"]) == \
-        (2, 1, 2, 1)
+        (2, 1, pytest.approx(4 / 3, abs=1e-3), 1)  # 3 points: (2 + 1 + 1) / 3
     assert v["points"][0]["reviewed"] and v["points"][0]["visibility"] == "1.0–1.5 m"
 
     # …and the AI can be measured against it, or against a CSV of hand counts.
@@ -199,15 +205,21 @@ def test_points_meancount_labels_and_evaluation(client, synthetic_video, tmp_pat
     ev = client.post(f"/surveys/{sid}/evaluation", json={"path": str(hand)}).json()
     assert ev["shareWithin"] == 1.0 and ev["source"] == "hand.csv"
 
-    # Window confirmation and recording details.
-    assert client.patch(f"/videos/{v['id']}", json={"confirmWindow": True, "by": "Ana", "recordedAt": "2025-08-20",
-                                                    "transect": "T1", "stat": "STAT 1"}).status_code == 204
+    # Recording details.
+    assert client.patch(f"/videos/{v['id']}/details", json={"recordedAt": "2025-08-20", "transect": "T1",
+                                                            "stat": "STAT 1"}).status_code == 204
     v = client.get(f"/surveys/{sid}/results").json()["videos"][0]
-    assert (v["windowConfirmedBy"], v["recordedAt"], v["transect"]) == ("Ana", "2025-08-20", "T1")
+    assert (v["recordedAt"], v["transect"], v["stat"]) == ("2025-08-20", "T1", "STAT 1")
+
+    # Confirming a different window counts again from scratch (labels on the old count go away).
+    v = confirm_and_count(client, sid, start_s=20)["videos"][0]
+    assert v["windowStartS"] == 20 and [p["timestampS"] for p in v["points"]] == [20, 40, 60]
+    assert v["points"][0]["perSpecies"] == {} and v["points"][0]["reviewed"] is False
 
 
 def test_label_errors_are_plain_english(client, synthetic_video):
     sid = _analyse(client, [str(synthetic_video)])
+    confirm_and_count(client, sid)
     r = client.post("/labels", json={"surveyId": sid, "trackIds": ["x"], "action": "species", "species": "Cuner",
                                      "by": "Ana"})
     assert r.status_code == 400 and "species list" in r.json()["detail"]

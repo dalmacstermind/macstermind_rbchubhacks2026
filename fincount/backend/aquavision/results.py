@@ -41,10 +41,16 @@ class VideoSummary:
     recorded_at: str
     transect: str
     stat: str
-    window_start_s: float
-    window_end_s: float
-    window_note: str
-    window_confirmed_by: str
+    window_start_s: float | None  # confirmed by a person; None until then (nothing is counted before)
+    window_end_s: float | None
+    proposed_start_s: float | None  # what the app proposed (US-2.1)
+    proposed_end_s: float | None
+    proposed_reason: str
+    settled: bool | None
+    too_short: bool  # flagged: not processed
+    confirmed_by: str
+    count_state: str  # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed"
+    count_detail: str
     points: list[PointResult]
     mean_count: float | None  # final (staff values where set)
     mean_count_ai: float | None  # the AI's alone
@@ -95,11 +101,13 @@ def video_summary(video, points, sightings, frames_by_point: dict[int, list], la
     suggestions = [r.ai.suggested_visibility for r in results if r.ai.suggested_visibility]
     visibility = video["visibility"] or (max(set(suggestions), key=suggestions.count) if suggestions else None)
     return VideoSummary(
-        video["id"], video["name"], video["recorded_at"], video["transect"], video["stat"], video["window_start_s"],
-        video["window_end_s"], video["window_note"], video["window_confirmed_by"], results,
+        video["id"], video["file_name"], video["recorded_at"], video["transect"], video["stat"],
+        video["window_start_s"], video["window_end_s"], video["proposed_start_s"], video["proposed_end_s"],
+        video["proposed_reason"], None if video["settled"] is None else bool(video["settled"]),
+        bool(video["too_short"]), video["confirmed_by"], video["count_state"], video["count_detail"], results,
         mean_count([r.ai for r in results], [r.total_fish for r in results]),
         mean_count([r.ai for r in results]), found, summary.median, summary.min, summary.max, summary.trend,
-        visibility, all(r.reviewed for r in results if r.ai.needs_review))
+        visibility, bool(results) and all(r.reviewed for r in results if r.ai.needs_review))
 
 
 def image_counts(rows, labels: dict[str, TrackLabel], threshold: float) -> list[ImageCount]:
