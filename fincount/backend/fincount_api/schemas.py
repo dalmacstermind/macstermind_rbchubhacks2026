@@ -107,7 +107,6 @@ class Frame(Model):
 class SurveyInfo(Model):
     id: int
     site: str
-    environment: str
     threshold: float
     created_at: str  # when it was analysed
     survey_date: str = ""  # when it was filmed (YYYY-MM-DD), "" if unknown
@@ -156,7 +155,6 @@ class AnalysisRequest(Model):
     site: str = ""
     survey_date: str = ""  # YYYY-MM-DD the footage was filmed; used by Trends
     person: str = ""  # who started it
-    environment: str = "Coastal marine"
     threshold: float = Field(0.5, ge=0, le=1)
     sampling: Literal[1, 2, 5] = 1  # pictures per second of video
     enhance: bool = True  # clear up murky water

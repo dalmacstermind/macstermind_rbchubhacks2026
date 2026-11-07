@@ -1,4 +1,4 @@
-// Home: add footage, fill in the survey, count. Below: open work from earlier surveys.
+// Home: add footage, fill in the survey, count. Below: earlier surveys, unfinished ones first.
 import { useState } from "react";
 import type { AnalysisRequest, PickedFile, Sampling, SkippedFile } from "../../../shared/api";
 import type { OpenItem } from "../../../shared/survey";
@@ -8,6 +8,8 @@ import { Chip, Disclosure, Field, Header, btnGhost, btnLink, btnPrimary, formatB
 
 export type SurveyForm = Omit<AnalysisRequest, "files" | "person">;
 export type OpenTarget = "report" | OpenItem["key"];
+
+const RECENT = 5; // surveys listed before "Show all"
 
 export function UploadView({
   files,
@@ -31,6 +33,7 @@ export function UploadView({
   onDeleted: () => void;
 }) {
   const [drag, setDrag] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [skipped, setSkipped] = useState<SkippedFile[]>([]);
   const [confirmNode, confirm] = useConfirm();
   const set = <K extends keyof SurveyForm>(k: K, v: SurveyForm[K]) => setForm({ ...form, [k]: v });
@@ -42,7 +45,10 @@ export function UploadView({
     setFiles([...files, ...r.files.filter((f) => !files.some((x) => x.path === f.path))]);
   };
   const total = files.reduce((a, f) => a + f.size, 0);
+  // One list of earlier surveys: the ones that still need work come first, then the finished ones.
   const withWork = (overview ?? []).filter((o) => o.open.length > 0);
+  const sorted = [...withWork, ...(overview ?? []).filter((o) => o.open.length === 0)];
+  const shown = showAll ? sorted : sorted.slice(0, RECENT);
 
   return (
     <>
@@ -139,21 +145,17 @@ export function UploadView({
             </div>
           )}
 
-          {withWork.length > 0 && (
+          {sorted.length > 0 && (
             <div>
-              <div className="mb-3 font-display text-lg font-semibold">Pick up where you left off</div>
-              <div className="rounded-2xl border border-border bg-card">
-                {withWork.map((o) => (
-                  <SurveyRow key={o.data.survey.id} o={o} onOpen={onOpen} />
-                ))}
+              <div className="mb-3 flex items-baseline justify-between gap-3">
+                <div className="font-display text-lg font-semibold">Your surveys</div>
+                <div className="text-xs text-muted-foreground">
+                  {withWork.length > 0 ? `${withWork.length} still need work · ` : ""}
+                  {plural(sorted.length, "survey")}
+                </div>
               </div>
-            </div>
-          )}
-
-          {overview && overview.length > 0 && (
-            <Disclosure label={`All surveys (${overview.length})`}>
               <div className="rounded-2xl border border-border bg-card">
-                {overview.map((o) => (
+                {shown.map((o) => (
                   <SurveyRow
                     key={o.data.survey.id}
                     o={o}
@@ -168,7 +170,12 @@ export function UploadView({
                   />
                 ))}
               </div>
-            </Disclosure>
+              {sorted.length > shown.length && (
+                <button className={`${btnLink} mt-2`} onClick={() => setShowAll(true)}>
+                  Show all {sorted.length} surveys
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -189,13 +196,6 @@ export function UploadView({
               onChange={(e) => set("surveyDate", e.target.value)}
               className="input"
             />
-          </Field>
-          <Field label="Type of water">
-            <select className="input" value={form.environment} onChange={(e) => set("environment", e.target.value)}>
-              <option>Coastal marine</option>
-              <option>River or estuary</option>
-              <option>Freshwater lake</option>
-            </select>
           </Field>
           <Disclosure label="More options">
             <div className="space-y-5">

@@ -8,7 +8,6 @@ export type AnalysisRequest = {
   site: string;
   surveyDate: string; // YYYY-MM-DD the footage was filmed ("" if unknown)
   person: string; // who started it
-  environment: string;
   threshold: number; // 0–1
   sampling: Sampling;
   enhance: boolean; // clear up murky water
@@ -46,7 +45,6 @@ export const ANALYSIS_STAGES = [
 export type SurveyInfo = {
   id: number;
   site: string;
-  environment: string;
   threshold: number;
   createdAt: string;
   surveyDate: string;

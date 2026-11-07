@@ -233,7 +233,7 @@ export function frameCounts(frame: Frame, species: Species[], threshold: number)
   return { fish, invertebrates };
 }
 
-/** Things still open on a survey. Shown before export and in "Pick up where you left off". */
+/** Things still open on a survey. Shown before export and in "Your surveys". */
 export type OpenItem = { key: "review" | "label" | "qc"; text: string };
 
 export function openItems(
