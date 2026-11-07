@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, st
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from aquavision.config import load_app_config, load_protocol_config
+from aquavision.config import load_app_config
 from aquavision.protocol import WindowError, validate_window
 
 from . import __version__
@@ -24,21 +24,23 @@ from aquavision.detect import ModelMissingError
 from . import pipeline, survey_results
 from .pipeline import Jobs, model_status
 from .schemas import (AnalysisRequest, DetectionPatch, EvaluationIn, EvaluationOut, Frame, Health, Job, LabelIn,
-                      LabelResult, ModelStatus, Person, PointPatch, QcCountIn, QcData, Reference,
-                      ReferenceFromDetection, ReferencesIn, Reidentified, Species, SpeciesIn, SpeciesPatch, Storage,
-                      SurveyData, SurveyInfo, SurveyPatch, SurveyResults, Unknowns, Video, VideoDetailsPatch,
-                      VideoWindowPatch)
+                      LabelResult, ModelStatus, Person, PointPatch, ProtocolCheck, ProtocolSettings,
+                      ProtocolSettingsState, QcCountIn, QcData, Reference, ReferenceFromDetection, ReferencesIn,
+                      Reidentified, Species, SpeciesIn, SpeciesPatch, Storage, SurveyData, SurveyInfo, SurveyPatch,
+                      SurveyResults, Unknowns, Video, VideoDetailsPatch, VideoWindowPatch)
+from .settings import ProtocolSettingsStore, SettingsError, apply_settings, points_per_window
 
 DATA_DIR = Path(os.environ.get("FINCOUNT_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 # The desktop app passes a random token so other programs (or web pages) on this PC can't use the API.
 # When it's not set (development), no token is needed.
 TOKEN = os.environ.get("FINCOUNT_TOKEN", "")
 
-# Protocol and app settings (config/*.yaml), loaded once at start-up and passed to the pipeline.
-protocol = load_protocol_config()
 app_config = load_app_config()
-
 db = Database(DATA_DIR / "fincount.db")
+# Protocol settings: staff's saved copy in the data folder, or the shipped config/protocol.yaml.
+# New surveys use `protocol`; each survey keeps a snapshot of the values it started with.
+settings_store = ProtocolSettingsStore(DATA_DIR, db)
+protocol = settings_store.current
 jobs = Jobs(db, DATA_DIR, protocol, app_config)
 
 
@@ -270,20 +272,27 @@ def list_videos(survey_id: int):
     return videos
 
 
+def _person(x_fincount_user: str, what: str) -> str:
+    """Who's working, from the X-FinCount-User header (URL-encoded by the app). Must be on the people list."""
+    person = unquote(x_fincount_user).strip()
+    if not person or not db.person_exists(person):
+        raise HTTPException(400, f"Pick who's working first, so {what} is saved with your name.")
+    return person
+
+
 @app.patch("/videos/{video_id}", response_model=Video, tags=["surveys"])
 def confirm_window(video_id: int, body: VideoWindowPatch, x_fincount_user: str = Header("")):
     """Confirm or change a video's analysis window. The app sends who's working, URL-encoded."""
-    person = unquote(x_fincount_user).strip()
-    if not person or not db.person_exists(person):
-        raise HTTPException(400, "Pick who's working first, so the window is saved with your name.")
+    person = _person(x_fincount_user, "the window")
     video = db.get_video(video_id)
     if not video:
         raise HTTPException(404, "No such video")
     if video.too_short:
         raise HTTPException(422, f"{video.file_name} is too short for the protocol, so its window can't be "
                                  "confirmed or processed.")
+    rules = jobs.protocol_for(video.survey_id).window  # the rules this survey was processed with
     try:
-        validate_window(body.window_start_s, body.window_end_s, video.duration_s, video.fps, protocol.window)
+        validate_window(body.window_start_s, body.window_end_s, video.duration_s, video.fps, rules)
     except WindowError as e:
         raise HTTPException(422, str(e))
     confirmed = db.confirm_window(video_id, body.window_start_s, body.window_end_s, person)
@@ -311,21 +320,63 @@ def update_detection(detection_id: int, body: DetectionPatch):
 
 # ── Blind QC ──
 
+def _qc_percent(survey_id: int, percent: float | None) -> float:
+    """QC sample size: the survey's protocol snapshot (qc.sample_fraction) unless the caller gives one."""
+    return percent if percent is not None else jobs.protocol_for(survey_id).qc.sample_fraction * 100
+
+
 @app.get("/surveys/{survey_id}/qc", response_model=QcData, tags=["qc"])
-def get_qc(survey_id: int, percent: float = Query(10, gt=0, le=100)):
+def get_qc(survey_id: int, percent: float | None = Query(None, gt=0, le=100)):
     """The random sample is picked the first time this is called for a survey, then kept."""
     if not db.get_survey(survey_id):
         raise HTTPException(404, "No such survey")
-    sample, counts = db.qc(survey_id, percent)
+    sample, counts = db.qc(survey_id, _qc_percent(survey_id, percent))
     return QcData(sample=sample, counts=counts)
 
 
 @app.post("/surveys/{survey_id}/qc", response_model=QcData, tags=["qc"])
-def add_qc_count(survey_id: int, body: QcCountIn, percent: float = Query(10, gt=0, le=100)):
+def add_qc_count(survey_id: int, body: QcCountIn, percent: float | None = Query(None, gt=0, le=100)):
     if not db.add_qc_count(survey_id, body):
         raise HTTPException(400, "That picture isn't in this survey's QC sample.")
-    sample, counts = db.qc(survey_id, percent)
+    sample, counts = db.qc(survey_id, _qc_percent(survey_id, percent))
     return QcData(sample=sample, counts=counts)
+
+
+# ── Protocol settings (Settings screen). Changes apply to new processing only. ──
+
+@app.get("/settings/protocol", response_model=ProtocolSettingsState, tags=["settings"])
+def get_protocol_settings():
+    return settings_store.state()
+
+
+@app.put("/settings/protocol", tags=["settings"],
+         response_model=ProtocolSettingsState | ProtocolCheck)
+def save_protocol_settings(body: ProtocolSettings, check: bool = False, x_fincount_user: str = Header("")):
+    """Save the protocol settings for new surveys. With ?check=true nothing is saved: the reply says how
+    many points a window gets, or what's wrong with each field (so the screen can explain as staff type)."""
+    if check:
+        try:
+            return ProtocolCheck(points_per_window=points_per_window(apply_settings(settings_store.current, body)))
+        except SettingsError as e:
+            return ProtocolCheck(errors=e.errors)
+    person = _person(x_fincount_user, "the change")
+    try:
+        _use_protocol(settings_store.save(body, person))
+    except SettingsError as e:
+        raise HTTPException(422, str(e))
+    return settings_store.state()
+
+
+@app.delete("/settings/protocol", response_model=ProtocolSettingsState, tags=["settings"])
+def reset_protocol_settings(x_fincount_user: str = Header("")):
+    """Back to the shipped defaults (config/protocol.yaml), for new surveys."""
+    _use_protocol(settings_store.reset(_person(x_fincount_user, "the change")))
+    return settings_store.state()
+
+
+def _use_protocol(cfg) -> None:
+    global protocol
+    protocol = jobs.protocol = cfg  # new surveys use these; earlier surveys keep their snapshot
 
 
 # ── Protocol results: subsample points, MeanCount, species richness, image counts ──

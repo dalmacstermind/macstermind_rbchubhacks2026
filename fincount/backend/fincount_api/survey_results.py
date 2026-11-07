@@ -12,13 +12,14 @@ from pathlib import Path
 import numpy as np
 
 from aquavision import results as av_results
-from aquavision.config import load_protocol_config, load_vision_config
+from aquavision.config import load_vision_config
 from aquavision.detect import box_iou
 from aquavision.evaluate import HumanCount, compare, read_human_csv
 from aquavision.labels import UNKNOWN_ID, check_label, effective_labels, mirror_species_id
 from aquavision.species import NOVEL, UNKNOWN
 
 from .db import Database
+from .settings import survey_protocol
 from .schemas import (AiPointCount, Box, EvaluationOut, ImageOut, LabelOut, PointOut, Suggestion, SurveyResults,
                       UnknownFish, Unknowns, UnknownSource, VideoOut)
 
@@ -32,7 +33,7 @@ def _labels(db: Database, survey_id: int, registry: dict[str, str]):
 
 
 def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResults:
-    protocol = load_protocol_config()
+    protocol = survey_protocol(db, survey_id)  # the values this survey was processed with, not today's settings
     clarity_cfg = load_vision_config().clarity
     registry = _registry(db)
     labels = _labels(db, survey_id, registry)
@@ -161,7 +162,7 @@ def evaluate(db: Database, survey_id: int, threshold: float, csv_path: str | Non
         # A point a person reviewed carries their count (their correction, or a confirmation of the AI's).
         human = [HumanCount(v.name, p.point_no, p.total_fish) for v in res.videos for p in v.points if p.reviewed]
         source = "points reviewed by staff in the app"
-    ev = compare(ai, human, load_protocol_config().qc, source)
+    ev = compare(ai, human, survey_protocol(db, survey_id).qc, source)
     return EvaluationOut(**asdict(ev))
 
 

@@ -255,8 +255,18 @@ light/dark theme, shortcuts sheet, export check) and add the missing wireframe s
   subsample points and the richness scan only accept an `AnalysisWindow` confirmed via
   `PATCH /videos/{id}`. Videos shorter than trim + window + trim are flagged `too_short` and can't
   be confirmed or processed.
-- Each survey stores a snapshot of the protocol values it was processed with. Changes in Settings
-  apply to new processing only; old results keep their values.
+- **Protocol settings (Settings screen):** staff change the window, subsample and QC values in the
+  app. The shipped defaults stay in `backend/config/protocol.yaml` (never written by the app); staff
+  changes are saved to `<data folder>/protocol.yaml`, which wins when present, so updates never
+  overwrite them. Every save/reset is recorded with who and when (`protocol_changes` table). Values
+  not on the screen (sediment-check calibration, scan rates, visibility categories, the ±1 s
+  tolerance limit) are edited in the YAML only. Code: `fincount_api/settings.py`.
+- Each survey stores a snapshot of the protocol values it was processed with
+  (`surveys.protocol_json`). Everything about that survey (window proposal and confirmation, point
+  counting, results, QC) uses its snapshot via `settings.survey_protocol()`, never the current
+  settings, so changes apply to new processing only. Surveys from before snapshots were recorded
+  use the shipped defaults (`SurveyInfo.protocolRecorded` is false). Never read `protocol.yaml`
+  directly for a survey's results.
 - Only the frames needed are decoded: each point's ±`context_s` range and the full-window scan at
   `richness.scan_fps`. Frames stay in memory; only each point's context clip is saved to disk.
 
@@ -456,9 +466,9 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | New | `GET /points/{id}/clip` | The saved ±context clip for a point |
 | New | `GET /surveys/{id}/unknowns` | Unlabelled fish grouped by track, with crop, source and top 3 suggestions |
 | New | `POST /labels` · `DELETE /labels/{id}` | Apply a label to one or more tracks (returns updated counts); undo |
-| Change | `GET /surveys/{id}/qc` · `POST /surveys/{id}/qc` | Blind QC on **points** (not pictures); returns absolute and % difference |
+| Change | `GET /surveys/{id}/qc` · `POST /surveys/{id}/qc` | Blind QC on **points** (not pictures); returns absolute and % difference. Done: sample size, max difference and target come from the survey's protocol snapshot (`percent` is optional) |
 | New | `GET /trends` | Per-video summaries; query: `transect`, `stat`, `from`, `to`, `reviewedOnly`, `groupBySurvey` |
-| New | `GET /settings/protocol` · `PUT /settings/protocol` | Read/write protocol settings (applies to new processing) |
+| Done | `GET /settings/protocol` · `PUT /settings/protocol` · `DELETE /settings/protocol` | Read, save (`?check=true`: validate only, returns points per window or per-field errors), reset to defaults. Save/reset need `X-FinCount-User` (on the people list). Applies to new processing only |
 | New | `POST /benchmark` · `GET /benchmark` | Run and read the hardware benchmark |
 | New (optional) | `GET /surveys/{id}/labelled-crops.zip` | Local export of labelled crops |
 | Retire | `GET /frames/{id}/image` · `PATCH /detections/{id}` | Replaced by media, points and labels |

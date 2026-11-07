@@ -5,14 +5,12 @@ import type { Person, QcData, SurveyData } from "../../../shared/api";
 import { frameCounts, qcDifference, type Species } from "../../../shared/survey";
 import { api } from "../api";
 import { qcState, type SurveyOverview } from "../overview";
-import type { Prefs } from "../prefs";
 import { useKeys } from "../shortcuts";
 import { Alert, Chip, Header, Kbd, btnGhost, btnPrimary, plural } from "../ui";
 
 export function QcView({
   overview,
   species,
-  prefs,
   person,
   surveyId,
   setSurveyId,
@@ -20,7 +18,6 @@ export function QcView({
 }: {
   overview: SurveyOverview[] | null;
   species: Species[];
-  prefs: Prefs;
   person: Person;
   surveyId: number | null;
   setSurveyId: (id: number | null) => void;
@@ -31,7 +28,6 @@ export function QcView({
       <QcCounting
         surveyId={surveyId}
         species={species}
-        prefs={prefs}
         person={person}
         onBack={() => setSurveyId(null)}
         onChanged={onChanged}
@@ -42,9 +38,9 @@ export function QcView({
       <Header eyebrow="Tools" title="Blind quality check" />
       <div className="max-w-4xl space-y-4 px-10 py-8">
         <p className="text-sm text-muted-foreground">
-          A second person recounts {prefs.qcPercent}% of each survey's pictures without seeing TIDE's boxes or
-          counts. Counts more than {prefs.qcMaxDiff}% apart are flagged for a recount. The goal is {prefs.qcTarget}%
-          agreement.
+          A second person recounts a random sample of each survey's pictures without seeing TIDE's boxes or
+          counts. The sample size, the allowed difference and the agreement target are the protocol values the
+          survey was processed with (Settings → Protocol settings).
         </p>
         {!overview ? (
           <p className="text-muted-foreground">Loading…</p>
@@ -96,14 +92,12 @@ export function QcView({
 function QcCounting({
   surveyId,
   species,
-  prefs,
   person,
   onBack,
   onChanged,
 }: {
   surveyId: number;
   species: Species[];
-  prefs: Prefs;
   person: Person;
   onBack: () => void;
   onChanged: () => void;
@@ -121,13 +115,13 @@ function QcCounting({
   const [ignoreWarning, setIgnoreWarning] = useState(false);
 
   const load = useCallback(async () => {
-    const [d, q] = await Promise.all([api.surveys.get(surveyId), api.qc.get(surveyId, prefs.qcPercent)]);
+    const [d, q] = await Promise.all([api.surveys.get(surveyId), api.qc.get(surveyId)]);
     setData(d);
     setQc(q);
     const mine = new Set(q.counts.filter((c) => c.person === person.name).map((c) => c.frameId));
     const next = q.sample.findIndex((id) => !mine.has(id));
     setIdx(next === -1 ? q.sample.length : next);
-  }, [surveyId, prefs.qcPercent, person.name]);
+  }, [surveyId, person.name]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -138,7 +132,7 @@ function QcCounting({
 
   const submit = async () => {
     if (!frame || !data || result) return;
-    const q = await api.qc.add(surveyId, prefs.qcPercent, {
+    const q = await api.qc.add(surveyId, {
       frameId: frame.id,
       person: person.name,
       fish,
@@ -162,7 +156,8 @@ function QcCounting({
   });
 
   if (!data || !qc) return <div className="p-10 text-muted-foreground">Loading…</div>;
-  const state = qcState(data, qc, species, prefs);
+  const state = qcState(data, qc, species);
+  const { qcAgreementPct: target, qcMaxDiffPct: maxDiff } = data.survey.protocol; // this survey's QC rules
   const touchedBefore =
     data.survey.createdBy === person.name ||
     data.frames.some((f) => f.detections.some((d) => d.editedBy === person.name));
@@ -176,7 +171,7 @@ function QcCounting({
         <div className="mr-2 text-sm text-muted-foreground">
           Agreement so far:{" "}
           <b className="text-foreground">{state.agreement === null ? "—" : `${Math.round(state.agreement)}%`}</b>{" "}
-          (target {prefs.qcTarget}%)
+          (target {target}%)
         </div>
         <button className={btnGhost} onClick={onBack}>
           Back to list
@@ -202,14 +197,14 @@ function QcCounting({
         {finished ? (
           <div className="max-w-xl space-y-4">
             <Alert
-              tone={state.agreement !== null && state.agreement >= prefs.qcTarget ? "success" : "warning"}
-              icon={state.agreement !== null && state.agreement >= prefs.qcTarget ? "✓" : "⚠"}
-              title={`Agreement ${state.agreement === null ? "—" : `${Math.round(state.agreement)}%`} (target ${prefs.qcTarget}%)`}
+              tone={state.agreement !== null && state.agreement >= target ? "success" : "warning"}
+              icon={state.agreement !== null && state.agreement >= target ? "✓" : "⚠"}
+              title={`Agreement ${state.agreement === null ? "—" : `${Math.round(state.agreement)}%`} (target ${target}%)`}
             >
-              {state.agreement !== null && state.agreement >= prefs.qcTarget
+              {state.agreement !== null && state.agreement >= target
                 ? "This survey meets the quality target."
                 : "Below target. Pictures more than " +
-                  prefs.qcMaxDiff +
+                  maxDiff +
                   "% apart should be recounted by another person."}
             </Alert>
             <button className={btnPrimary} onClick={onBack}>
@@ -270,7 +265,7 @@ function QcCounting({
                 {result && (
                   <QcResult
                     result={result}
-                    maxDiff={prefs.qcMaxDiff}
+                    maxDiff={maxDiff}
                     onNext={next}
                     last={idx + 1 >= qc.sample.length}
                   />

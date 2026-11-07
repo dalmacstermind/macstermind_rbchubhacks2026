@@ -245,7 +245,6 @@ export function UploadView({
                 />
                 Ignore tiny specks (sediment, bubbles)
               </label>
-              <p className="text-xs text-muted-foreground">Change the starting values for these in Settings.</p>
             </div>
           </Disclosure>
           <button disabled={!files.length} onClick={onStart} className={`${btnPrimary} w-full py-3`}>

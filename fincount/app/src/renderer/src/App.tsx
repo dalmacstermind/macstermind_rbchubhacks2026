@@ -45,7 +45,7 @@ export default function App() {
   const [reviewMode, setReviewMode] = useState<ReviewMode>("all");
   const [qcSurvey, setQcSurvey] = useState<number | null>(null);
   const [shortcuts, setShortcuts] = useState(false);
-  const [overview, reloadOverview] = useOverview(species, prefs);
+  const [overview, reloadOverview] = useOverview(species);
 
   useEffect(() => {
     void api.species.list().then(setSpecies);
@@ -57,35 +57,29 @@ export default function App() {
     () => (data ? summarize(data.frames, species, data.survey.threshold) : null),
     [data, species],
   );
-  const qc = useMemo(
-    () => (data && qcRaw ? qcState(data, qcRaw, species, prefs) : null),
-    [data, qcRaw, species, prefs],
-  );
+  const qc = useMemo(() => (data && qcRaw ? qcState(data, qcRaw, species) : null), [data, qcRaw, species]);
 
   const go = (p: Page) => {
     if (p === "upload" || p === "qc" || p === "trends") void reloadOverview();
-    if (p === "report" && data) void api.qc.get(data.survey.id, prefs.qcPercent).then(setQcRaw);
+    if (p === "report" && data) void api.qc.get(data.survey.id).then(setQcRaw);
     if (p === "qc") setQcSurvey(null);
     setPage(p);
   };
 
-  const openSurvey = useCallback(
-    async (id: number, target: OpenTarget = "report") => {
-      const [d, q] = await Promise.all([api.surveys.get(id), api.qc.get(id, prefs.qcPercent)]);
-      setData(d);
-      setQcRaw(q);
-      setFinished(null);
-      if (target === "qc") {
-        setQcSurvey(id);
-        setPage("qc");
-      } else if (target === "report") setPage("report");
-      else {
-        setReviewMode(target);
-        setPage("review");
-      }
-    },
-    [prefs.qcPercent],
-  );
+  const openSurvey = useCallback(async (id: number, target: OpenTarget = "report") => {
+    const [d, q] = await Promise.all([api.surveys.get(id), api.qc.get(id)]);
+    setData(d);
+    setQcRaw(q);
+    setFinished(null);
+    if (target === "qc") {
+      setQcSurvey(id);
+      setPage("qc");
+    } else if (target === "report") setPage("report");
+    else {
+      setReviewMode(target);
+      setPage("review");
+    }
+  }, []);
 
   const start = async () => {
     if (!person) return;
@@ -231,14 +225,13 @@ export default function App() {
           <QcView
             overview={overview}
             species={species}
-            prefs={prefs}
             person={person}
             surveyId={qcSurvey}
             setSurveyId={(id) => {
               setQcSurvey(id);
               if (id === null) void reloadOverview();
             }}
-            onChanged={() => data && void api.qc.get(data.survey.id, prefs.qcPercent).then(setQcRaw)}
+            onChanged={() => data && void api.qc.get(data.survey.id).then(setQcRaw)}
           />
         )}
         {page === "trends" && (
@@ -260,7 +253,7 @@ export default function App() {
           />
         )}
         {page === "species" && <SpeciesView species={species} setSpecies={setSpecies} person={person} />}
-        {page === "settings" && <SettingsView prefs={prefs} setPrefs={setPrefs} person={person} />}
+        {page === "settings" && <SettingsView person={person} />}
       </main>
     </div>
   );
