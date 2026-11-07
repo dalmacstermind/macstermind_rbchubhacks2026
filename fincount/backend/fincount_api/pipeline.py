@@ -20,8 +20,11 @@ import cv2
 import numpy as np
 
 from aquavision import device
-from aquavision.analyse import Analyser, Cancelled, read_image
-from aquavision.config import ConfigError, VisionConfig, load_vision_config
+from aquavision.analyse import IMAGE_EXT as AV_IMAGE_EXT
+from aquavision.analyse import Analyser, Cancelled, FileResult, read_image
+from aquavision.config import (AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_app_config,
+                               load_protocol_config, load_vision_config)
+from aquavision.ingest import recorded_date, transect_stat
 from aquavision.detect import CfdDetector, ModelMissingError
 from aquavision.species import BioClipEncoder, ReferenceIndex, crop_box, match
 
@@ -176,6 +179,9 @@ def model_status(db: Database | None = None) -> ModelStatus:
     """Whether the real models are installed, GPU/CPU mode, and how many reference pictures exist."""
     refs = len(db.reference_vectors(VISION.encoder_name)) if db is not None else 0
     return VISION.status(refs)
+
+
+SPECK_AREA_PCT2 = 30  # boxes under 0.3% of the picture (30 in %×%) are specks when "ignore specks" is on
 
 
 def species_for(label: str, registry: set[str]) -> str:
@@ -370,9 +376,41 @@ class Jobs:
             self._discard(job, out_dir)
             job.state, job.error = "failed", str(e)
 
+    def _store_result(self, survey_id: int, src: Path, res: FileResult, req: AnalysisRequest, registry: set[str],
+                      out_dir: Path, video_id: int | None) -> tuple[int, int, int]:
+        """Save one file's pictures, boxes and track embeddings. Returns (pictures, boxes, organisms)."""
+        for tid, vec in res.track_vectors.items():
+            crop = res.track_crops.get(tid)
+            crop_path = str(_save_jpg(crop, out_dir / "crops" / f"{tid}.jpg")) if crop is not None else ""
+            self.db.save_track_vectors(survey_id, tid, vec, crop_path)
+        for tid, crop in res.track_crops.items():  # crops of tracks without embeddings (no species model)
+            if tid not in res.track_vectors:
+                _save_jpg(crop, out_dir / "crops" / f"{tid}.jpg")
+        found, kept_tracks = 0, set()
+        for pic in res.pictures:
+            rows = []
+            for d in pic.detections:
+                box = _to_percent(d.box, pic.width, pic.height)
+                if req.ignore_specks and box.w * box.h < SPECK_AREA_PCT2:
+                    continue
+                sr = res.species[d.track_id]
+                rows.append((species_for(sr.label, registry), round(d.conf, 3), box,
+                             {"track_id": d.track_id, "ai_label": sr.label, "top_k": sr.top_k,
+                              "novelty": sr.novelty, "unknown_reason": sr.reason}))
+            found += len(rows)
+            kept_tracks.update(r[3]["track_id"] for r in rows)
+            self.db.add_frame(survey_id, src.name, pic.timestamp, str(pic.image_path), rows, pic.clarity,
+                              video_id=video_id, point_no=pic.point_no, t_s=pic.t_s, role=pic.role)
+        return len(res.pictures), found, len(kept_tracks)
+
     def _run_real(self, state: _JobState, req: AnalysisRequest, out_dir: Path, update):
-        """The real pipeline (aquavision) for every file of the survey. One bad file never stops the rest."""
+        """The real pipeline (aquavision) for every file of the survey. One bad file never stops the rest.
+
+        Videos: protocol analysis window, subsample points (with context clips) and the richness scan.
+        Images: detected and identified on their own; never part of MeanCount.
+        """
         job = state.job
+        protocol, app_cfg = load_protocol_config(), load_app_config()  # snapshot for this survey
         update(0, 0, "Loading the fish detector and species model")
         try:
             analyser = VISION.analyser()
@@ -392,33 +430,32 @@ class Jobs:
                 update(base + fr * span, stage, f"{src.name}: {int(fr * 100)}%")
 
             update(base, 0, f"Opening {src.name}")
+            save = (lambda img, name, key=key: _save_jpg(img, out_dir / f"{key}_{name}.jpg"))
             try:
-                res = analyser.analyse(
-                    src, key, sampling_fps=req.sampling, enhance=req.enhance, index=index,
-                    save_picture=lambda img, k, key=key: _save_jpg(img, out_dir / f"{key}_{k:05d}.jpg"),
-                    on_progress=progress, cancelled=state.cancel.is_set)
-                found, kept_tracks = 0, set()
-                for tid, vec in res.track_vectors.items():
-                    crop = res.track_crops.get(tid)
-                    crop_path = str(_save_jpg(crop, out_dir / "crops" / f"{tid}.jpg")) if crop is not None else ""
-                    self.db.save_track_vectors(job.survey_id, tid, vec, crop_path)
-                for pic in res.pictures:
-                    rows = []
-                    for d in pic.detections:
-                        box = _to_percent(d.box, pic.width, pic.height)
-                        if req.ignore_specks and box.w * box.h < 30:  # < 0.3% of the picture = speck
-                            continue
-                        sr = res.species[d.track_id]
-                        rows.append((species_for(sr.label, registry), round(d.conf, 3), box,
-                                     {"track_id": d.track_id, "ai_label": sr.label, "top_k": sr.top_k,
-                                      "novelty": sr.novelty, "unknown_reason": sr.reason}))
-                    found += len(rows)
-                    kept_tracks.update(r[3]["track_id"] for r in rows)
-                    self.db.add_frame(job.survey_id, src.name, pic.timestamp, str(pic.image_path), rows, pic.clarity)
-                fish = len(kept_tracks)  # after dropping specks, so it matches what staff see
+                if src.suffix.lower() in AV_IMAGE_EXT:
+                    res = analyser.analyse_image(src, key, enhance=req.enhance, index=index, save_picture=save,
+                                                 on_progress=progress, cancelled=state.cancel.is_set)
+                    pics, found, fish = self._store_result(job.survey_id, src, res, req, registry, out_dir, None)
+                    status.detail = f"Photo · {found} box{'es' if found != 1 else ''}"
+                else:
+                    res = analyser.analyse_video(src, key, protocol=protocol, app=app_cfg,
+                                                 clip_dir=out_dir / "clips" / key, enhance=req.enhance, index=index,
+                                                 save_picture=save, on_progress=progress,
+                                                 cancelled=state.cancel.is_set)
+                    transect, stat = transect_stat(f)
+                    when = recorded_date(f)
+                    w = res.window
+                    video_id = self.db.add_video(job.survey_id, key, src.name, str(src), w.duration_s, w.fps,
+                                                 w.start_s, w.end_s, w.note,
+                                                 when.isoformat() if when else req.survey_date, transect or "",
+                                                 stat or "")
+                    for pt in res.points:
+                        self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
+                    pics, found, fish = self._store_result(job.survey_id, src, res, req, registry, out_dir, video_id)
+                    status.detail = (f"{len(res.points)} point{'s' if len(res.points) != 1 else ''} · "
+                                     f"{pics} pictures · {fish} tracked organism{'s' if fish != 1 else ''}"
+                                     + (" · shorter than the protocol window" if w.note else ""))
                 status.state = "done"
-                status.detail = (f"{len(res.pictures)} picture{'s' if len(res.pictures) != 1 else ''} · "
-                                 f"{found} box{'es' if found != 1 else ''} · {fish} tracked fish")
             except Cancelled:
                 raise InterruptedError from None
             except Exception as e:  # one bad file never stops the rest of the batch

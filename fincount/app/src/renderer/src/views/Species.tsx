@@ -1,4 +1,4 @@
-// The species FinCount can name. Staff add new arrivals and change statuses here.
+// The species TIDE can name. Staff add new arrivals and change statuses here.
 import { useState } from "react";
 import type { Person } from "../../../shared/api";
 import { STATUS_LABEL, UNKNOWN, type Species, type SpeciesStatus } from "../../../shared/survey";
@@ -59,7 +59,7 @@ export function SpeciesView({
       </Header>
       <div className="space-y-4 px-10 py-8">
         <p className="max-w-3xl text-sm text-muted-foreground">
-          These are the species FinCount can name. Add new arrivals here. Changing a status (for example, marking a
+          These are the species TIDE can name. Add new arrivals here. Changing a status (for example, marking a
           species as invasive) updates every report straight away. The species model can only suggest a species once
           it has a few reference pictures.
         </p>

@@ -8,6 +8,10 @@ import { createServer } from "node:net";
 import { basename, extname, join } from "node:path";
 import type { BackendInfo, PickedFile, SkippedFile } from "../shared/api";
 
+// The product is called TIDE, but its data folder stays %APPDATA%\FinCount until a dedicated rename
+// task moves it (CLAUDE.md, Naming). Electron would otherwise name it after the product.
+app.setPath("userData", join(app.getPath("appData"), "FinCount"));
+
 let win: BrowserWindow | null = null;
 let backend: ChildProcess | null = null;
 let backendInfo: Promise<BackendInfo>;
@@ -30,7 +34,7 @@ const freePort = () =>
  *                already running; otherwise starts ../backend with Python for you.
  */
 async function startBackend(): Promise<BackendInfo> {
-  const dataDir = app.getPath("userData");
+  const dataDir = app.getPath("userData"); // %APPDATA%\FinCount, pinned at the top of this file
 
   if (!app.isPackaged) {
     const url = process.env.FINCOUNT_API_URL ?? "http://127.0.0.1:8765";
@@ -97,7 +101,7 @@ function createWindow() {
     height: 900,
     minWidth: 1100,
     minHeight: 700,
-    title: "FinCount",
+    title: "TIDE",
     backgroundColor: "#0b1620",
     autoHideMenuBar: true,
     show: false,
@@ -117,7 +121,7 @@ function createWindow() {
   else void win.loadFile(join(__dirname, "../renderer/index.html"));
 }
 
-// Only one copy of FinCount at a time (two would fight over the database).
+// Only one copy of TIDE at a time (two would fight over the database).
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on("second-instance", () => {
   if (win?.isMinimized()) win.restore();
@@ -130,7 +134,7 @@ app.commandLine.appendSwitch("disable-component-update");
 app.commandLine.appendSwitch("disable-background-networking");
 
 app.whenReady().then(() => {
-  backendInfo = startBackend(); // the window shows "Starting FinCount…" until this is ready
+  backendInfo = startBackend(); // the window shows "Starting TIDE…" until this is ready
   registerIpc();
   createWindow();
 });
@@ -159,6 +163,15 @@ function registerIpc() {
       filters: [{ name: "Pictures", extensions: PHOTO.map((e) => e.slice(1)) }],
     });
     return r.filePaths;
+  });
+
+  ipcMain.handle("files:pickCsv", async () => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: "Choose the hand counts (CSV: video, point, total_fish)",
+      properties: ["openFile"],
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+    return r.filePaths[0] ?? null;
   });
 
   ipcMain.handle("files:pickFolder", async () => {

@@ -9,6 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .db_protocol import PROTOCOL_MIGRATIONS, PROTOCOL_SCHEMA, ProtocolStore
+
 from .schemas import (Box, Detection, Person, QcCount, QcCountIn, Reference, Species, SpeciesIn, SpeciesPatch,
                       Suggestion, SurveyInfo)
 
@@ -23,7 +25,7 @@ DEFAULT_SPECIES = [
     ("pickerel", "Chain pickerel", "Esox niger", "invasive", "Freshwater", "fish"),
     ("triggerfish", "Grey triggerfish", "Balistes capriscus", "unusual", "Marine", "fish"),
     ("green_crab", "European green crab", "Carcinus maenas", "invasive", "Marine", "invertebrate"),
-    ("unknown", "Unidentified fish", "—", "native", "—", "fish"),
+    ("unknown", "Unknown/Unable to ID due to visibility", "—", "native", "—", "fish"),
 ]
 
 SCHEMA = """
@@ -96,7 +98,7 @@ def _norm(name: str) -> str:
     return re.sub(r"\s+", "", name).lower()
 
 
-class Database:
+class Database(ProtocolStore):
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
@@ -104,12 +106,15 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.lock = threading.Lock()  # the analysis runs in a background thread
         with self.lock:
-            self.conn.executescript(SCHEMA)
-            for table, column, decl in MIGRATIONS:
+            self.conn.executescript(SCHEMA + PROTOCOL_SCHEMA)
+            for table, column, decl in MIGRATIONS + PROTOCOL_MIGRATIONS:
                 cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
                 if column not in cols:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
             self.conn.commit()
+        # CLAUDE.md: "Unidentified fish" is called "Unknown/Unable to ID due to visibility" (older databases).
+        self.run("UPDATE species SET common = ? WHERE id = 'unknown' AND common = 'Unidentified fish'",
+                 DEFAULT_SPECIES[-1][1])
         if self.one("SELECT COUNT(*) AS n FROM species")["n"] == 0:
             self.reset_species()
         elif not self.one("SELECT 1 FROM species WHERE id = 'green_crab'"):
@@ -245,7 +250,8 @@ class Database:
     # ── Frames & detections ──
 
     def add_frame(self, survey_id: int, source: str, timestamp: str, image_path: str,
-                  detections: list[tuple], clarity: float | None = None):
+                  detections: list[tuple], clarity: float | None = None, *, video_id: int | None = None,
+                  point_no: int | None = None, t_s: float | None = None, role: str = "sample") -> int:
         """detections: (species_id, confidence, box) as the model produced them, optionally followed by a
         dict with the real pipeline's extras: track_id, ai_label, top_k [(species_id, score)], novelty,
         unknown_reason."""
@@ -257,12 +263,15 @@ class Database:
                          json.dumps(x.get("top_k", [])), x.get("novelty"), x.get("unknown_reason", "")))
         with self.lock, self.conn:
             frame_id = self.conn.execute(
-                "INSERT INTO frames (survey_id, source, timestamp, image_path, clarity) VALUES (?, ?, ?, ?, ?)",
-                (survey_id, source, timestamp, image_path, None if clarity is None else float(clarity))).lastrowid
+                "INSERT INTO frames (survey_id, source, timestamp, image_path, clarity, video_id, point_no, t_s, role) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (survey_id, source, timestamp, image_path, None if clarity is None else float(clarity), video_id,
+                 point_no, t_s, role)).lastrowid
             self.conn.executemany(
                 "INSERT INTO detections (frame_id, species_id, model_species_id, confidence, x, y, w, h, "
                 "track_id, ai_label, top_k, novelty, unknown_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [(frame_id, *r) for r in rows])
+        return frame_id
 
     def frame_image(self, frame_id: int):
         r = self.one("SELECT image_path FROM frames WHERE id = ?", frame_id)

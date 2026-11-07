@@ -77,6 +77,40 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 | PATCH | `/detections/{id}` | `{speciesId, verified, by}` | `204`. Saved the moment staff click; `by` is who did it |
 | POST | `/surveys/{id}/reidentify` | | `{tracks, changed}`. Matches the survey's fish again against the current reference pictures (no new detection). Boxes staff checked keep their species |
 
+### Protocol results (subsample points, MeanCount, species richness)
+
+Videos are analysed per the FFH protocol (`config/protocol.yaml`): analysis window, a point every
+`subsample.interval_s`, each point's ±`context_s` clip tracked so one fish counts once, counted only
+within ±`count.tolerance_s`, plus a sparse full-window scan for species richness. Images get per-image
+counts and are never in MeanCount. **All counting happens in the back end**; results are recalculated
+on every request, so labels and point edits show up at once.
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/surveys/{id}/results` | | `SurveyResults` |
+| PATCH | `/videos/{id}` | `{recordedAt?, transect?, stat?, visibility?, confirmWindow?, by}` | `204` |
+| PATCH | `/points/{id}` | `{totalFish?, invertebrates?, visibility?, notes?, by}` | `204`. Stored next to the AI's values; `-1` puts a count back to the AI's |
+| GET | `/points/{id}/clip` | | the ±context clip (MP4; token in the query) |
+
+### Labelling unknown fish (Label page)
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/surveys/{id}/unknowns` | | `Unknowns`: one card per tracked organism the AI left as Unknown / Potential Novel Sighting |
+| GET | `/surveys/{id}/tracks/{trackId}/crop` | | the organism's best crop (JPG) |
+| POST | `/labels` | `LabelRequest` | `{labelIds, remaining}`. One or more tracks (bulk), or a box drawn on a picture |
+| DELETE | `/labels/{id}` | | `{labelIds: [], remaining}`. Undo: the pictures go back to what they said before |
+
+A drawn box that overlaps an existing organism by `label.match_iou` relabels it instead of adding one.
+Labels are chosen, never typed: `species` must be a registry id; `invertebrateType` one of crab, shrimp,
+worm, snail.
+
+### Evaluation (the AI against hand counts)
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| POST | `/surveys/{id}/evaluation` | `{path?}` | `Evaluation`. `path`: a CSV of hand counts on this computer (`video, point, total_fish`); no path: the points staff reviewed |
+
 ### Blind QC
 
 | Method | Path | Body | Returns |
@@ -189,6 +223,61 @@ QcData         {
                 }
 
 Storage        { dataDir, freeBytes, totalBytes, picturesBytes, databaseBytes }
+
+SurveyResults  { videos: VideoResult[], images: ImageResult[], unknownsRemaining, visibilityCategories: string[] }
+
+VideoResult    {
+                    id, name, recordedAt, transect, stat,
+                    windowStartS, windowEndS,
+                    windowNote: string,         // set when the video is shorter than the protocol window
+                    windowConfirmedBy: string,
+                    points: PointResult[],
+                    meanCount: number | null,   // final (staff values where set); zero points included
+                    meanCountAi: number | null, // the AI's alone
+                    speciesRichness: number, speciesFound: string[],
+                    clarityIndex, clarityMin, clarityMax: number | null,   // estimate, not turbidity
+                    clarityTrend: "improving" | "worsening" | "stable" | null,
+                    visibility: string | null, reviewed: boolean, unknownsRemaining: number
+                }
+
+PointResult    {
+                    id, pointNo, timestampS,
+                    totalFish, invertebrates,   // final
+                    perSpecies: {speciesId: count}, unknown, speciesObserved,
+                    clarityIndex, suggestedVisibility, visibility,   // visibility = confirmed by staff
+                    notes, staffNotes, needsReview, reviewed, editedBy,
+                    uncertain, outside,         // not counted: below the threshold / outside ±tolerance
+                    ai: { totalFish, invertebrates },   // never changed
+                    clip: string | null         // "/points/3/clip"
+                }
+
+ImageResult    { fileId, relPath, totalFish, invertebrates, perSpecies, unknown, notes, needsReview }
+
+Unknowns       { fish: UnknownFish[], remaining, remainingByFile: {file: count} }
+
+UnknownFish    {
+                    trackId, crop,              // "/surveys/1/tracks/f1-p1-t0/crop"
+                    source: { kind: "video" | "image", file, videoId, pointNo, timestamp, role: "point" | "scan" | "photo" },
+                    frameIds: string[], bestFrameId, box,
+                    aiLabel, suggestions: {speciesId, score}[], reason,
+                    label: { id, action, species, invertebrateType, labelledBy, labelledAt } | null
+                }
+
+LabelRequest   {
+                    surveyId, action: "species" | "unidentifiable" | "not_organism" | "invertebrate",
+                    trackIds?: string[], species?, invertebrateType?, useAsReference?,
+                    frameId?, box?,             // a box drawn around an organism the AI missed
+                    by
+                }
+
+Evaluation     {
+                    pointsCompared, shareWithin, meanAbsDiff, medianPctDiff, zeroAgreement, meetsAgreement,
+                    maxPctDiff, minAgreement,   // from protocol.yaml qc.*
+                    videos: { video, points, meanCountAi, meanCountHuman, meanCountAbsDiff, meanCountPctDiff,
+                              shareWithin, zeroAgreement }[],
+                    points: { video, pointNo, ai, human, absDiff, pctDiff, within }[],
+                    unmatchedHuman: string[], source
+                }
 ```
 
 ## Who decides what
@@ -198,5 +287,8 @@ Storage        { dataDir, freeBytes, totalBytes, picturesBytes, databaseBytes }
   detector's; the species model's result is in `aiLabel` / `suggestions`. A species is only filled in
   when the species model is sure (`species.match_threshold` and `species.margin`); otherwise
   `speciesId` is `"unknown"` and staff pick from the suggestions.
-- **The app** applies the certainty threshold, works out the counts (MaxN: the most of each species seen in one picture), compares blind QC counts, and builds the Excel/PDF exports. So the back end never needs to calculate counts.
+- **The back end** calculates the protocol figures (point counts, MeanCount, species richness, image
+  counts, clarity) in `GET /surveys/{id}/results`. The app only shows them and writes them to Excel.
+- **The app** still works out the picture-by-picture MaxN figures (an optional extra, not the headline),
+  compares blind QC counts, and builds the Excel/PDF exports.
 - **QC rules** (sample %, allowed difference, agreement target) are settings in the app, saved on the computer.

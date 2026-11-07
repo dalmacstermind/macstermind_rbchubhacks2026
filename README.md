@@ -41,6 +41,21 @@ python -m aquavision.fetch_models --verify # checks them
 
 Tests of the real models: `pytest -m models` (the default `pytest` run uses small test models).
 
+**Videos follow the FFH protocol:** analysis window, subsample points with context clips, counting
+within ±0.5 s with tracking (one fish counted once), MeanCount, species richness from a full-window
+scan, and a clarity index. Staff label the fish the AI couldn't name on the **Label unknown fish** page.
+
+**Accuracy is not measured yet:** there are no hand-counted results to compare with. To measure it,
+compare the AI with hand counts of the same points (Coastal Action's past spreadsheets, exported to a
+CSV with columns `video, point, total_fish`): in the app, **Report → Compare with hand counts…**, or
+
+```sh
+python -m aquavision.evaluate --results results.json --human hand_counts.csv
+```
+
+(`results.json` is saved from `GET /surveys/{id}/results`). It reports per-point differences, the share
+of points within 6 %, MeanCount per video and zero-point agreement, the way the protocol checks a person.
+
 ## Run it (development)
 
 ### 1. Check you have the tools

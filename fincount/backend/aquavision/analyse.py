@@ -1,18 +1,21 @@
-"""Picture pipeline for one file: pictures → detect → track → species → clarity.
+"""Vision pipeline for one file (used by the background job in fincount_api/pipeline.py).
 
-Used by the background job in fincount_api/pipeline.py (route handlers and the job runner stay
-thin; the vision logic lives here). One video or image in, `Picture`s with their fish out.
+Videos follow the protocol (CLAUDE.md, Protocol rules):
+  1. Analysis window: discard window.trim_start_s and window.trim_end_s, keep at most window.length_s.
+  2. Subsample points every subsample.interval_s inside the window (protocol.py). For each point,
+     only its ±subsample.context_s range is decoded (detect.context_fps pictures per second, the
+     point's own moment always included), detected and tracked with its own tracker, and its
+     context clip is saved. Counting at the point (±count.tolerance_s) happens in count.py.
+  3. Species richness: a sparse scan of the whole window at richness.scan_fps.
+Images: the image itself, once (never tracked, never in MeanCount).
 
-- Video: one picture every 1/fps seconds (the survey's "sampling"), read in place with OpenCV.
-- Image: the image itself, once. Images are never tracked or put into MeanCount.
-- Species are decided per tracked fish (not per picture): the best few crops of each track are
-  embedded with BioCLIP 2 and matched against the registry, and every detection of that track
-  gets the same result. So one fish never gets different species in different pictures.
+Species are decided per tracked organism, not per picture: the best few crops of each track are
+embedded with BioCLIP 2 and matched against the registry's reference pictures.
 """
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,9 +23,11 @@ import cv2
 import numpy as np
 
 from .clarity import clarity_index
-from .config import VisionConfig
+from .clips import save_clip
+from .config import AppConfig, ProtocolConfig, VisionConfig
 from .detect import Detection, Detector
 from .frames import iter_sampled_frames, probe_video
+from .protocol import context_range, plan_subsample_points
 from .species import ReferenceIndex, SpeciesResult, crop_box, match
 from .track import VideoTracker, image_tracks
 
@@ -30,7 +35,7 @@ log = logging.getLogger(__name__)
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv"}
-CROPS_PER_TRACK = 5  # best crops kept per fish for species ID
+CROPS_PER_TRACK = 5  # best crops kept per organism for species ID
 
 
 class Cancelled(Exception):
@@ -47,6 +52,24 @@ class Picture:
     timestamp: str  # "00:01:47" for video, "Photo" for images
     clarity: float | None
     detections: list[Detection] = field(default_factory=list)
+    role: str = "photo"  # "point" (a point's context clip) | "scan" (richness scan) | "photo"
+    point_no: int | None = None
+
+
+@dataclass
+class PointPlan:
+    point_no: int
+    timestamp_s: float
+    clip_path: Path | None  # None when the clip couldn't be saved (noted, not fatal)
+
+
+@dataclass
+class VideoWindow:
+    start_s: float
+    end_s: float
+    duration_s: float
+    fps: float
+    note: str = ""  # set when the protocol window doesn't fit and the whole video was used
 
 
 @dataclass
@@ -54,7 +77,9 @@ class FileResult:
     pictures: list[Picture]
     species: dict[str, SpeciesResult]  # track_id → result
     track_vectors: dict[str, np.ndarray]  # track_id → crop embeddings (kept for re-identification)
-    track_crops: dict[str, np.ndarray]  # track_id → best crop (BGR), for reference pictures
+    track_crops: dict[str, np.ndarray]  # track_id → best crop (BGR), for labelling and reference pictures
+    window: VideoWindow | None = None  # videos only
+    points: list[PointPlan] = field(default_factory=list)  # videos only
 
 
 @dataclass
@@ -79,6 +104,24 @@ def read_image(path: Path) -> np.ndarray:
 def hhmmss(t: float) -> str:
     t = int(round(t))
     return f"{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}"
+
+
+def analysis_window(duration_s: float, fps: float, protocol: ProtocolConfig) -> VideoWindow:
+    """Protocol rule: discard the start and end, then keep at most window.length_s.
+
+    If that leaves no room for a single point, the whole video is used and a note says so (staff
+    must check it): a short test clip still gets results, but they are never presented as a
+    protocol window.
+    """
+    w = protocol.window
+    start = w.trim_start_s
+    end = min(duration_s - w.trim_end_s, start + w.length_s)
+    if end - start > protocol.subsample.first_point_offset_s:
+        return VideoWindow(start, end, duration_s, fps)
+    return VideoWindow(0.0, duration_s, duration_s, fps,
+                       f"This video ({hhmmss(duration_s)}) is shorter than the protocol needs (discard "
+                       f"{w.trim_start_s:g} s at the start and {w.trim_end_s:g} s at the end). Points were placed "
+                       "across the whole video: check before using these counts.")
 
 
 def _fit(img: np.ndarray, max_width: int) -> np.ndarray:
@@ -106,33 +149,20 @@ class Analyser:
         self.encoder = encoder  # BioClipEncoder, or None when the species model isn't installed
         self.max_width = max_width
 
-    def analyse(self, path: Path, file_key: str, *, sampling_fps: float, enhance: bool,
-                index: ReferenceIndex, save_picture: Callable[[np.ndarray, int], Path],
-                on_progress: Callable[[float], None], cancelled: Callable[[], bool]) -> FileResult:
-        """Detect, track, identify and measure clarity for one video or image."""
-        ext = path.suffix.lower()
-        if ext in IMAGE_EXT:
-            sources = [(0, 0.0, "Photo", read_image(path))]
-            total = 1
-            tracker = None
-        elif ext in VIDEO_EXT:
-            info = probe_video(path)
-            total = max(1, int(info.duration_s * sampling_fps) + 1)
-            sources = ((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image)
-                       for f in iter_sampled_frames(path, file_key, 0.0, info.duration_s, sampling_fps,
-                                                    preroll_s=1.0))
-            tracker = VideoTracker(file_key, self.cfg.track, sampling_fps)
-        else:
-            raise ValueError(f"{path.name} isn't a video or picture this app can read.")
+    # ── shared steps ──
 
-        pictures: list[Picture] = []
-        crops: dict[str, _TrackCrops] = {}
+    def _run_pictures(self, sources: Iterable[tuple[int, float, str, np.ndarray]], tracker: VideoTracker | None,
+                      image_key: str, enhance: bool, crops: dict[str, _TrackCrops], pictures: list[Picture],
+                      save_picture: Callable[[np.ndarray, str], Path], name: Callable[[int], str], role: str,
+                      point_no: int | None, keep_empty: bool, cancelled: Callable[[], bool],
+                      tick: Callable[[], None]) -> None:
+        """Detect (and track) every picture from `sources`, keeping crops for species ID."""
         for n, (frame_idx, t_s, stamp, raw) in enumerate(sources, 1):
             if cancelled():
                 raise Cancelled
             img = _fit(raw, self.max_width)
             dets = self.detector.detect(img, frame_idx, t_s, enhance=enhance)
-            dets = tracker.update(dets) if tracker else image_tracks(file_key, dets)
+            dets = tracker.update(dets) if tracker else image_tracks(image_key, dets)
             for old, new in (tracker.relinked.items() if tracker else ()):
                 if old in crops:  # a first sighting joined a track: move its crops there too
                     for q, c in crops.pop(old).crops:
@@ -143,16 +173,18 @@ class Analyser:
                 c = crop_box(img, d.box, self.cfg.species.crop_padding, self.cfg.species.min_crop_px)
                 if c is not None:
                     crops.setdefault(d.track_id, _TrackCrops()).add(_crop_quality(img, d), c)
-            saved = save_picture(img, n)
-            pictures.append(Picture(saved, img.shape[1], img.shape[0], frame_idx, t_s, stamp,
-                                    clarity_index(img, self.cfg.clarity), dets))
-            on_progress(min(0.9, 0.9 * n / total))
+            if dets or keep_empty:
+                saved = save_picture(img, name(n))
+                pictures.append(Picture(saved, img.shape[1], img.shape[0], frame_idx, t_s, stamp,
+                                        clarity_index(img, self.cfg.clarity), dets, role, point_no))
+            tick()
 
+    def _identify(self, pictures: list[Picture], crops: dict[str, _TrackCrops], index: ReferenceIndex,
+                  cancelled: Callable[[], bool]):
         species: dict[str, SpeciesResult] = {}
         vectors: dict[str, np.ndarray] = {}
         best: dict[str, np.ndarray] = {}
-        track_ids = {d.track_id for p in pictures for d in p.detections}
-        for i, tid in enumerate(sorted(track_ids), 1):
+        for tid in sorted({d.track_id for p in pictures for d in p.detections}):
             if cancelled():
                 raise Cancelled
             tc = crops.get(tid)
@@ -165,6 +197,70 @@ class Analyser:
             if vec.size:
                 vectors[tid] = vec
             species[tid] = match(vec, index, self.cfg.species)
-            on_progress(0.9 + 0.1 * i / max(1, len(track_ids)))
+        return species, vectors, best
+
+    # ── images ──
+
+    def analyse_image(self, path: Path, file_key: str, *, enhance: bool, index: ReferenceIndex,
+                      save_picture: Callable[[np.ndarray, str], Path], on_progress: Callable[[float], None],
+                      cancelled: Callable[[], bool]) -> FileResult:
+        pictures: list[Picture] = []
+        crops: dict[str, _TrackCrops] = {}
+        self._run_pictures([(0, 0.0, "Photo", read_image(path))], None, file_key, enhance, crops, pictures,
+                           save_picture, lambda n: "photo", "photo", None, True, cancelled, lambda: None)
+        on_progress(0.8)
+        species, vectors, best = self._identify(pictures, crops, index, cancelled)
         on_progress(1.0)
         return FileResult(pictures, species, vectors, best)
+
+    # ── videos (protocol) ──
+
+    def analyse_video(self, path: Path, file_key: str, *, protocol: ProtocolConfig, app: AppConfig,
+                      clip_dir: Path, enhance: bool, index: ReferenceIndex,
+                      save_picture: Callable[[np.ndarray, str], Path], on_progress: Callable[[float], None],
+                      cancelled: Callable[[], bool]) -> FileResult:
+        info = probe_video(path)
+        window = analysis_window(info.duration_s, info.fps, protocol)
+        plans = plan_subsample_points(file_key, window.start_s, window.end_s, protocol.subsample, clip_dir)
+        ctx = protocol.subsample.context_s
+        fps = self.cfg.detect.context_fps
+        scan_fps = protocol.richness.scan_fps
+        total = sum(int(2 * ctx * fps) + 1 for _ in plans) + int((window.end_s - window.start_s) * scan_fps) + 1
+        done = 0
+
+        def tick():
+            nonlocal done
+            done += 1
+            on_progress(min(0.9, 0.9 * done / max(1, total)))
+
+        pictures: list[Picture] = []
+        crops: dict[str, _TrackCrops] = {}
+        points: list[PointPlan] = []
+        for p in plans:
+            start, end = context_range(p.timestamp_s, ctx, info.duration_s)
+            # Start the sampling grid so the point's own moment is one of the pictures read.
+            grid_start = p.timestamp_s - int((p.timestamp_s - start) * fps) / fps
+            frames = iter_sampled_frames(path, file_key, grid_start, end, fps, preroll_s=app.frames.seek_preroll_s)
+            tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps)
+            self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), tracker,
+                               file_key, enhance, crops, pictures, save_picture,
+                               lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
+                               cancelled, tick)
+            clip: Path | None = p.clip_path
+            try:
+                save_clip(path, start, end, p.clip_path, app.clips, preroll_s=app.frames.seek_preroll_s)
+            except Exception as e:  # a missing clip never stops the count; staff can still see the pictures
+                log.warning("Context clip for point %s of %s not saved: %s", p.point_no, path.name, e)
+                clip = None
+            points.append(PointPlan(p.point_no, p.timestamp_s, clip))
+
+        # Species richness: sparse scan of the whole window (only pictures with something in them are kept).
+        scan_tracker = VideoTracker(f"{file_key}-scan", self.cfg.track, scan_fps)
+        frames = iter_sampled_frames(path, file_key, window.start_s, window.end_s, scan_fps,
+                                     preroll_s=app.frames.seek_preroll_s)
+        self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
+                           file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
+                           None, False, cancelled, tick)
+        species, vectors, best = self._identify(pictures, crops, index, cancelled)
+        on_progress(1.0)
+        return FileResult(pictures, species, vectors, best, window, points)

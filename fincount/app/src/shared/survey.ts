@@ -89,7 +89,7 @@ export const DEFAULT_SPECIES: Species[] = [
     habitat: "Marine",
     kind: "invertebrate",
   },
-  { id: "unknown", common: "Unidentified fish", scientific: "—", status: "native", habitat: "—" },
+  { id: "unknown", common: "Unknown/Unable to ID due to visibility", scientific: "—", status: "native", habitat: "—" },
 ];
 
 export const UNKNOWN = "unknown";
@@ -206,7 +206,7 @@ export function summarize(frames: Frame[], species: Species[], threshold: number
     sightings: counted.filter((d) => byId.get(d.speciesId)?.kind !== "invertebrate").length,
     rows: [...fishRows, ...rows.filter(isInvert)],
     speciesCount: fishRows.filter((r) => r.sp.id !== UNKNOWN).length,
-    /** Fish still named "Unidentified fish" that nobody has looked at yet. */
+    /** Fish still named "Unknown/Unable to ID due to visibility" that nobody has looked at yet. */
     toLabel: all.filter((d) => d.speciesId === UNKNOWN && !d.verified && isCounted(d, threshold)).length,
     clarity: clarities.length ? clarities.reduce((a, c) => a + c, 0) / clarities.length : null,
     checkedBy: [...new Set(all.map((d) => d.editedBy).filter((x): x is string => !!x))],
@@ -255,7 +255,7 @@ export function openItems(
   return items;
 }
 
-/** Percent difference used by blind QC: |yours − FinCount's| / FinCount's (0 vs 0 = 0%). */
+/** Percent difference used by blind QC: |yours − TIDE's| / TIDE's (0 vs 0 = 0%). */
 export function qcDifference(yours: number, app: number) {
   if (yours === app) return 0;
   return (Math.abs(yours - app) / Math.max(app, 1)) * 100;

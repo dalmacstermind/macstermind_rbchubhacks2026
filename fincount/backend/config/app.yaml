@@ -31,6 +31,9 @@ detect:
   conf_threshold: 0.2       # the API returns every box at or above this (API.md, "Who decides what")
   nms_iou: 0.5              # merging boxes from the original and the cleared-up picture
   min_box_px: 6             # boxes narrower or shorter than this many pixels are dropped
+  # Pictures per second read from each subsample point's ±context_s range (protocol.yaml). The
+  # point's own moment is always included. More = better tracking, slower processing.
+  context_fps: 5
 
 species:
   model_dir: bioclip-2      # BioCLIP 2 snapshot (open_clip format) inside models.dir
@@ -56,3 +59,11 @@ clarity:
     haze: 0.20
     colour: 0.15
     particles: 0.15
+  # Suggested visibility category from the clarity index: one boundary between each pair of
+  # protocol.yaml visibility.categories (3 boundaries for 4 categories). UNCALIBRATED: set them
+  # from frames where staff recorded a category. Staff confirm the category; only that is exported.
+  category_thresholds: [30, 50, 70]
+  review_threshold: 25      # below this, the point needs review and gets a "low visibility" note
+
+label:
+  match_iou: 0.5            # a drawn box overlapping an existing fish this much relabels it (no double count)

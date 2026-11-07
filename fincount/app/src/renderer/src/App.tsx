@@ -11,6 +11,7 @@ import { Alert, btnGhost, initials, plural } from "./ui";
 import { WhoIsWorking } from "./views/People";
 import { ProcessingView } from "./views/Processing";
 import { QcView } from "./views/QC";
+import { LabelView } from "./views/Label";
 import { ReportView, type ReviewMode } from "./views/Report";
 import { ReviewView } from "./views/Review";
 import { SettingsView } from "./views/Settings";
@@ -18,7 +19,7 @@ import { SpeciesView } from "./views/Species";
 import { TrendsView } from "./views/Trends";
 import { UploadView, type OpenTarget, type SurveyForm } from "./views/Upload";
 
-type Page = "upload" | "processing" | "report" | "review" | "qc" | "trends" | "species" | "settings";
+type Page = "upload" | "processing" | "report" | "review" | "label" | "qc" | "trends" | "species" | "settings";
 
 export default function App() {
   const [person, setPerson] = useState<Person | null>(null);
@@ -98,7 +99,7 @@ export default function App() {
       setFinished(r.files);
       if (prefs.notify) {
         const failed = r.files.filter((f) => f.state === "failed").length;
-        new Notification("FinCount: counting finished", {
+        new Notification("TIDE: counting finished", {
           body: `${form.site || "Your survey"} is ready${failed ? ` · ${plural(failed, "file")} couldn't be read` : ""}.`,
         });
       }
@@ -248,6 +249,16 @@ export default function App() {
             onChanged={() => void reloadOverview()}
           />
         )}
+        {page === "label" && data && (
+          <LabelView
+            key={data.survey.id}
+            data={data}
+            species={species}
+            setSpecies={setSpecies}
+            person={person}
+            onChanged={() => void api.surveys.get(data.survey.id).then(setData)}
+          />
+        )}
         {page === "species" && <SpeciesView species={species} setSpecies={setSpecies} person={person} />}
         {page === "settings" && <SettingsView prefs={prefs} setPrefs={setPrefs} person={person} />}
       </main>
@@ -285,6 +296,7 @@ function Sidebar({
     { id: "processing", label: "Counting", n: "2", enabled: false },
     { id: "report", label: "Report", n: "3", enabled: hasSurvey && !busy },
     { id: "review", label: "Check the fish", n: "4", enabled: hasSurvey && !busy, badge: toCheck },
+    { id: "label", label: "Label unknown fish", n: "5", enabled: hasSurvey && !busy },
   ];
   const tools: { id: Page; label: string; icon: string }[] = [
     { id: "qc", label: "Blind QC", icon: "✓" },
@@ -302,10 +314,10 @@ function Sidebar({
     <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground print:hidden">
       <div className="flex items-center gap-3 px-5 py-5">
         <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-ocean font-display text-lg font-bold text-primary-foreground">
-          F
+          T
         </div>
         <div>
-          <div className="font-display text-lg font-semibold leading-none">FinCount</div>
+          <div className="font-display text-lg font-semibold leading-none">TIDE</div>
           <div className="mt-1 text-xs text-sidebar-foreground/60">Fish survey analysis</div>
         </div>
       </div>

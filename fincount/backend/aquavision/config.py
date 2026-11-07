@@ -37,10 +37,31 @@ class RichnessConfig:
 
 
 @dataclass(frozen=True)
+class CountConfig:
+    tolerance_s: float
+    max_tolerance_s: float
+
+    @property
+    def effective_tolerance_s(self) -> float:
+        """Protocol rule: ±tolerance_s around the point, never more than ±max_tolerance_s."""
+        return min(self.tolerance_s, self.max_tolerance_s)
+
+
+@dataclass(frozen=True)
+class QcConfig:
+    sample_fraction: float
+    max_pct_diff: float
+    min_agreement: float
+
+
+@dataclass(frozen=True)
 class ProtocolConfig:
     window: WindowConfig
     subsample: SubsampleConfig
     richness: RichnessConfig
+    count: CountConfig
+    qc: QcConfig
+    visibility_categories: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -72,7 +93,11 @@ def default_config_dir() -> Path:
 def load_protocol_config(path: Path | None = None) -> ProtocolConfig:
     path = path or default_config_dir() / "protocol.yaml"
     data = _read(path)
-    window, sub, rich = (_section(data, name, path) for name in ("window", "subsample", "richness"))
+    window, sub, rich, count, qc, vis = (_section(data, name, path) for name in
+                                         ("window", "subsample", "richness", "count", "qc", "visibility"))
+    cats = vis.get("categories")
+    if not isinstance(cats, list) or len(cats) < 2 or not all(isinstance(c, str) and c.strip() for c in cats):
+        raise ConfigError(f"{path.name}: visibility.categories must be a list of at least two names.")
     cfg = ProtocolConfig(
         window=WindowConfig(
             trim_start_s=_num(window, "window.trim_start_s", path, minimum=0),
@@ -87,7 +112,15 @@ def load_protocol_config(path: Path | None = None) -> ProtocolConfig:
             first_point_offset_s=_num(sub, "subsample.first_point_offset_s", path, minimum=0),
         ),
         richness=RichnessConfig(scan_fps=_num(rich, "richness.scan_fps", path, minimum=0, strict=True)),
+        count=CountConfig(tolerance_s=_num(count, "count.tolerance_s", path, minimum=0),
+                          max_tolerance_s=_num(count, "count.max_tolerance_s", path, minimum=0)),
+        qc=QcConfig(sample_fraction=_num(qc, "qc.sample_fraction", path, minimum=0, strict=True),
+                    max_pct_diff=_num(qc, "qc.max_pct_diff", path, minimum=0),
+                    min_agreement=_num(qc, "qc.min_agreement", path, minimum=0)),
+        visibility_categories=tuple(c.strip() for c in cats),
     )
+    if cfg.qc.sample_fraction > 1 or cfg.qc.min_agreement > 1:
+        raise ConfigError(f"{path.name}: qc.sample_fraction and qc.min_agreement are fractions (0–1).")
     if cfg.subsample.first_point_offset_s >= cfg.subsample.interval_s:
         raise ConfigError(f"{path.name}: subsample.first_point_offset_s must be less than subsample.interval_s.")
     return cfg
@@ -163,6 +196,7 @@ class DetectConfig:
     conf_threshold: float
     nms_iou: float
     min_box_px: float
+    context_fps: float  # pictures per second read from each point's ±context_s range
 
 
 @dataclass(frozen=True)
@@ -187,6 +221,13 @@ class TrackConfig:
 @dataclass(frozen=True)
 class ClarityConfig:
     weights: dict[str, float]
+    category_thresholds: tuple[float, ...]  # clarity index boundaries between visibility categories
+    review_threshold: float  # below this, a point needs review ("low visibility")
+
+
+@dataclass(frozen=True)
+class LabelConfig:
+    match_iou: float  # a drawn box overlapping an existing fish this much relabels it instead of adding one
 
 
 @dataclass(frozen=True)
@@ -196,6 +237,7 @@ class VisionConfig:
     species: SpeciesConfig
     track: TrackConfig
     clarity: ClarityConfig
+    label: LabelConfig
 
 
 CLARITY_MEASURES = ("contrast", "sharpness", "haze", "colour", "particles")
@@ -205,7 +247,13 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
     """Model locations and thresholds for detection, species ID, tracking and the clarity index."""
     path = path or default_config_dir() / "app.yaml"
     data = _read(path)
-    models, det, sp, trk, clar = (_section(data, n, path) for n in ("models", "detect", "species", "track", "clarity"))
+    models, det, sp, trk, clar, lab = (_section(data, n, path)
+                                       for n in ("models", "detect", "species", "track", "clarity", "label"))
+    thresholds = clar.get("category_thresholds")
+    if (not isinstance(thresholds, list) or not thresholds
+            or not all(isinstance(t, (int, float)) and 0 <= t <= 100 for t in thresholds)
+            or list(thresholds) != sorted(thresholds)):
+        raise ConfigError(f"{path.name}: clarity.category_thresholds must be increasing numbers from 0 to 100.")
     models_dir = Path(_text(models, "models.dir", path))
     if not models_dir.is_absolute():
         models_dir = (path.parent / models_dir).resolve()
@@ -225,6 +273,7 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             conf_threshold=_num(det, "detect.conf_threshold", path, minimum=0),
             nms_iou=_num(det, "detect.nms_iou", path, minimum=0, strict=True),
             min_box_px=_num(det, "detect.min_box_px", path, minimum=0),
+            context_fps=_num(det, "detect.context_fps", path, minimum=0, strict=True),
         ),
         species=SpeciesConfig(
             model_dir=models_dir / _text(sp, "species.model_dir", path),
@@ -241,7 +290,9 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             match_iou=_num(trk, "track.match_iou", path, minimum=0, strict=True),
             activation_threshold=_num(trk, "track.activation_threshold", path, minimum=0),
         ),
-        clarity=ClarityConfig(weights=w),
+        clarity=ClarityConfig(weights=w, category_thresholds=tuple(float(t) for t in thresholds),
+                              review_threshold=_num(clar, "clarity.review_threshold", path, minimum=0)),
+        label=LabelConfig(match_iou=_num(lab, "label.match_iou", path, minimum=0, strict=True)),
     )
     for key, value in (("detect.conf_threshold", cfg.detect.conf_threshold), ("detect.nms_iou", cfg.detect.nms_iou),
                        ("species.match_threshold", cfg.species.match_threshold),

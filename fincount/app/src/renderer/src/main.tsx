@@ -13,7 +13,7 @@ import { applyTheme, initialTheme } from "./theme";
 
 applyTheme(initialTheme()); // before first paint, so there's no flash of the wrong theme
 
-/** Shows "Starting FinCount…" until the back end answers, or a plain explanation if it can't start. */
+/** Shows "Starting TIDE…" until the back end answers, or a plain explanation if it can't start. */
 function Startup() {
   const [state, setState] = useState<"starting" | "ready" | string>("starting");
   useEffect(() => {
@@ -28,16 +28,16 @@ function Startup() {
     <div className="grid h-screen place-items-center bg-background text-foreground">
       <div className="max-w-xl px-8 text-center">
         <div className="mx-auto mb-6 grid h-14 w-14 place-items-center rounded-xl bg-gradient-ocean font-display text-2xl font-bold text-primary-foreground">
-          F
+          T
         </div>
         {state === "starting" ? (
           <>
-            <div className="font-display text-xl font-semibold">Starting FinCount…</div>
+            <div className="font-display text-xl font-semibold">Starting TIDE…</div>
             <p className="mt-2 text-sm text-muted-foreground">This takes a few seconds.</p>
           </>
         ) : (
           <>
-            <div className="font-display text-xl font-semibold">FinCount couldn't start</div>
+            <div className="font-display text-xl font-semibold">TIDE couldn't start</div>
             <p className="mt-2 text-sm text-muted-foreground">
               Close the app and open it again. If it keeps happening, send this message to whoever set it up:
             </p>

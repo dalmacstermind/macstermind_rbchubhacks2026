@@ -36,14 +36,14 @@ export function ProcessingView({
     () =>
       api.analysis.onProgress((pr) => {
         setP(pr);
-        document.title = `(${pr.percent}%) FinCount – Counting`;
+        document.title = `(${pr.percent}%) TIDE – Counting`;
         window.desktop.setProgress(pr.percent / 100);
       }),
     [],
   );
   useEffect(
     () => () => {
-      document.title = "FinCount";
+      document.title = "TIDE";
       window.desktop.setProgress(null);
     },
     [],

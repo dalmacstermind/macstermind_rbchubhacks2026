@@ -17,11 +17,12 @@ from . import __version__
 from .db import Database
 from aquavision.detect import ModelMissingError
 
-from . import pipeline
+from . import pipeline, survey_results
 from .pipeline import Jobs, model_status
-from .schemas import (AnalysisRequest, DetectionPatch, Frame, Health, Job, ModelStatus, Person, QcCountIn, QcData,
-                      Reference, ReferenceFromDetection, ReferencesIn, Reidentified, Species, SpeciesIn, SpeciesPatch,
-                      Storage, SurveyData, SurveyInfo, SurveyPatch)
+from .schemas import (AnalysisRequest, DetectionPatch, EvaluationIn, EvaluationOut, Frame, Health, Job, LabelIn,
+                      LabelResult, ModelStatus, Person, PointPatch, QcCountIn, QcData, Reference,
+                      ReferenceFromDetection, ReferencesIn, Reidentified, Species, SpeciesIn, SpeciesPatch, Storage,
+                      SurveyData, SurveyInfo, SurveyPatch, SurveyResults, Unknowns, VideoPatch)
 
 DATA_DIR = Path(os.environ.get("FINCOUNT_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 # The desktop app passes a random token so other programs (or web pages) on this PC can't use the API.
@@ -287,3 +288,116 @@ def add_qc_count(survey_id: int, body: QcCountIn, percent: float = Query(10, gt=
         raise HTTPException(400, "That picture isn't in this survey's QC sample.")
     sample, counts = db.qc(survey_id, percent)
     return QcData(sample=sample, counts=counts)
+
+
+# ── Protocol results: subsample points, MeanCount, species richness, image counts ──
+
+def _survey_or_404(survey_id: int):
+    found = db.get_survey(survey_id)
+    if not found:
+        raise HTTPException(404, "No such survey")
+    return found[0]
+
+
+@app.get("/surveys/{survey_id}/results", response_model=SurveyResults, tags=["results"])
+def survey_results_route(survey_id: int):
+    """Videos with per-point counts, MeanCount and species richness; per-image counts. Recalculated each time."""
+    info = _survey_or_404(survey_id)
+    return survey_results.build_results(db, survey_id, info.threshold)
+
+
+@app.patch("/videos/{video_id}", status_code=204, tags=["results"])
+def update_video(video_id: int, body: VideoPatch):
+    """Confirm the analysis window, correct the recording date / Transect / STAT, confirm visibility."""
+    if body.recorded_at and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.recorded_at):
+        raise HTTPException(422, "Date must look like 2025-08-20.")
+    fields = body.model_dump(exclude={"confirm_window", "by"})
+    if body.confirm_window:
+        if not body.by:
+            raise HTTPException(422, "Say who confirmed the analysis window.")
+        fields["window_confirmed_by"] = body.by
+    if not db.update_video(video_id, fields):
+        raise HTTPException(404, "No such video")
+    return Response(status_code=204)
+
+
+@app.patch("/points/{point_id}", status_code=204, tags=["results"])
+def update_point(point_id: int, body: PointPatch):
+    """A person's review of one point. The AI's original values are kept next to it."""
+    if not db.update_point(point_id, {"human_total_fish": body.total_fish, "human_invertebrates": body.invertebrates,
+                                      "visibility": body.visibility, "notes": body.notes}, body.by):
+        raise HTTPException(404, "No such point")
+    return Response(status_code=204)
+
+
+@app.get("/points/{point_id}/clip", response_class=FileResponse, tags=["results"])
+def point_clip(point_id: int):
+    p = db.point(point_id)
+    if not p or not p["clip_path"] or not Path(p["clip_path"]).is_file():
+        raise HTTPException(404, "There's no saved clip for this point.")
+    return FileResponse(p["clip_path"], media_type="video/mp4")
+
+
+# ── Labelling unknown fish ──
+
+@app.get("/surveys/{survey_id}/unknowns", response_model=Unknowns, tags=["labels"])
+def list_unknowns(survey_id: int):
+    _survey_or_404(survey_id)
+    return survey_results.unknowns(db, survey_id)
+
+
+@app.get("/surveys/{survey_id}/tracks/{track_id}/crop", tags=["labels"])
+def track_crop(survey_id: int, track_id: str):
+    crop = survey_results.crop_image(db, survey_id, track_id)
+    if crop is None:
+        raise HTTPException(404, "No picture of that fish")
+    if isinstance(crop, Path):
+        return FileResponse(crop, headers={"Cache-Control": "max-age=31536000, immutable"})
+    return Response(content=crop, media_type="image/jpeg")
+
+
+@app.post("/labels", response_model=LabelResult, tags=["labels"])
+def add_labels(body: LabelIn):
+    """Label one or more organisms (or a box drawn around one the AI missed). Counts update straight away."""
+    _survey_or_404(body.survey_id)
+    if (body.box is None) != (body.frame_id is None):
+        raise HTTPException(422, "A drawn box needs both the picture and the box.")
+
+    def add_reference(species_id: str, crop: Path, by: str):
+        try:
+            pipeline.add_reference_pictures(db, DATA_DIR, species_id, [str(crop)], by)
+        except ModelMissingError:
+            pass  # labelling never fails because the species model is missing
+
+    try:
+        ids = survey_results.apply_label(db, body.survey_id, body.track_ids, body.action, body.species,
+                                         body.invertebrate_type, body.use_as_reference, body.by,
+                                         int(body.frame_id) if body.frame_id else None, body.box, add_reference)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return LabelResult(label_ids=[str(i) for i in ids],
+                       remaining=survey_results.unknowns(db, body.survey_id).remaining)
+
+
+@app.delete("/labels/{label_id}", response_model=LabelResult, tags=["labels"])
+def undo_label(label_id: int):
+    survey_id = db.undo_label(label_id)
+    if survey_id is None:
+        raise HTTPException(404, "No such label (or it was already undone)")
+    return LabelResult(label_ids=[], remaining=survey_results.unknowns(db, survey_id).remaining)
+
+
+# ── Evaluation: the AI against hand counts ──
+
+@app.post("/surveys/{survey_id}/evaluation", response_model=EvaluationOut, tags=["results"])
+def evaluate_survey(survey_id: int, body: EvaluationIn):
+    """Compare the AI's point counts with hand counts (a CSV on this computer, or points staff reviewed)."""
+    info = _survey_or_404(survey_id)
+    if body.path and not Path(body.path).is_file():
+        raise HTTPException(400, f"Can't find {Path(body.path).name}.")
+    try:
+        return survey_results.evaluate(db, survey_id, info.threshold, body.path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))

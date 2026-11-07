@@ -162,11 +162,14 @@ def test_real_pipeline_tracks_identifies_and_reidentifies(client, tmp_path):
     job = _wait(client, client.post("/analyses", json={"site": "Test", "files": [str(video)], "sampling": 2,
                                                        "ignoreSpecks": False}).json())
     assert job["state"] == "done", job
-    assert "tracked fish" in job["files"][0]["detail"]
+    assert "tracked organism" in job["files"][0]["detail"]
     data = client.get(f"/surveys/{job['surveyId']}").json()
     dets = [d for f in data["frames"] for d in f["detections"]]
     assert len(data["frames"]) >= 10 and dets
-    assert len({d["trackId"] for d in dets}) <= 2  # one square → (almost always) one track
+    # Too short for the protocol window: one point across the whole video, plus the richness scan.
+    assert "shorter than the protocol window" in job["files"][0]["detail"]
+    point_tracks = {d["trackId"] for d in dets if "-p1-" in d["trackId"]}
+    assert 1 <= len(point_tracks) <= 2  # one square → one track (2 if it wraps around the picture)
     assert all(d["speciesId"] == "unknown" and d["aiLabel"] == "Unknown" for d in dets)  # no references yet
     assert all(f["clarity"] is not None for f in data["frames"])
 

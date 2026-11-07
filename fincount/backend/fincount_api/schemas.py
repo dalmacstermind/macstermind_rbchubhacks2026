@@ -205,3 +205,191 @@ class Storage(Model):
     total_bytes: int
     pictures_bytes: int
     database_bytes: int
+
+
+# ── Protocol results (subsample points, MeanCount, richness, images) ──
+
+class AiPointCount(Model):
+    total_fish: int
+    invertebrates: int
+
+
+class PointOut(Model):
+    id: int
+    point_no: int
+    timestamp_s: float
+    total_fish: int  # final: a person's value if they changed it, else the AI's
+    invertebrates: int
+    per_species: dict[str, int]  # species id → count (the AI's, after labels)
+    unknown: int  # "Unknown/Unable to ID due to visibility"
+    species_observed: int
+    clarity_index: Optional[float] = None  # 0–100 estimate, median over the tolerance window
+    suggested_visibility: Optional[str] = None
+    visibility: Optional[str] = None  # confirmed by staff (only this is exported as visibility)
+    notes: str  # the AI's notes (fish outside the tolerance window, low visibility…)
+    staff_notes: str = ""
+    needs_review: bool
+    reviewed: bool
+    edited_by: str = ""
+    uncertain: int = 0
+    outside: int = 0
+    ai: AiPointCount  # the AI's counts, never changed
+    clip: Optional[str] = None  # URL path of the ±context clip, e.g. "/points/3/clip"
+
+
+class VideoOut(Model):
+    id: int
+    name: str
+    recorded_at: str
+    transect: str
+    stat: str
+    window_start_s: float
+    window_end_s: float
+    window_note: str
+    window_confirmed_by: str
+    points: list[PointOut]
+    mean_count: Optional[float] = None
+    mean_count_ai: Optional[float] = None
+    species_richness: int
+    species_found: list[str]
+    clarity_index: Optional[float] = None  # video median
+    clarity_min: Optional[float] = None
+    clarity_max: Optional[float] = None
+    clarity_trend: Optional[str] = None
+    visibility: Optional[str] = None
+    reviewed: bool
+    unknowns_remaining: int = 0
+
+
+class ImageOut(Model):
+    file_id: str
+    rel_path: str
+    total_fish: int
+    invertebrates: int
+    per_species: dict[str, int]
+    unknown: int
+    notes: str
+    needs_review: bool
+
+
+class SurveyResults(Model):
+    videos: list[VideoOut]
+    images: list[ImageOut]
+    unknowns_remaining: int
+    visibility_categories: list[str]
+
+
+class VideoPatch(Model):
+    recorded_at: Optional[str] = None  # YYYY-MM-DD
+    transect: Optional[str] = None
+    stat: Optional[str] = None
+    visibility: Optional[str] = None
+    confirm_window: Optional[bool] = None
+    by: str = ""
+
+
+class PointPatch(Model):
+    total_fish: Optional[int] = Field(None, ge=-1)  # -1 = back to the AI's value
+    invertebrates: Optional[int] = Field(None, ge=-1)
+    visibility: Optional[str] = None
+    notes: Optional[str] = None
+    by: str = Field(min_length=1)
+
+
+# ── Labelling unknown fish ──
+
+class LabelOut(Model):
+    id: str
+    action: str
+    species: Optional[str] = None
+    invertebrate_type: Optional[str] = None
+    labelled_by: str
+    labelled_at: str
+
+
+class UnknownSource(Model):
+    kind: Literal["video", "image"]
+    file: str
+    video_id: Optional[int] = None
+    point_no: Optional[int] = None
+    timestamp: str  # "00:01:47" or "Photo"
+    role: str  # "point" | "scan" | "photo"
+
+
+class UnknownFish(Model):
+    """One card per tracked organism the AI left as Unknown or Potential Novel Sighting."""
+    track_id: str
+    crop: str  # URL path of the best crop
+    source: UnknownSource
+    frame_ids: list[str]  # pictures this organism appears in, in time order
+    best_frame_id: str
+    box: Box  # on the best picture
+    ai_label: str
+    suggestions: list[Suggestion]
+    reason: str
+    label: Optional[LabelOut] = None  # the current label, if staff labelled it
+
+
+class Unknowns(Model):
+    fish: list[UnknownFish]
+    remaining: int
+    remaining_by_file: dict[str, int]
+
+
+class LabelIn(Model):
+    survey_id: int
+    action: Literal["species", "unidentifiable", "not_organism", "invertebrate"]
+    track_ids: list[str] = []  # one or more organisms (bulk labelling)
+    species: Optional[str] = None  # registry species id when action == "species"
+    invertebrate_type: Optional[Literal["crab", "shrimp", "worm", "snail"]] = None
+    use_as_reference: bool = False
+    frame_id: Optional[str] = None  # with box: a box the person drew around an organism the AI missed
+    box: Optional[Box] = None
+    by: str = Field(min_length=1)
+
+
+class LabelResult(Model):
+    label_ids: list[str]
+    remaining: int
+
+
+# ── Evaluation against hand counts ──
+
+class EvaluationIn(Model):
+    path: Optional[str] = None  # CSV of hand counts on this computer; empty = use points staff corrected
+
+
+class PointComparisonOut(Model):
+    video: str
+    point_no: int
+    ai: int
+    human: int
+    abs_diff: int
+    pct_diff: float
+    within: bool
+
+
+class VideoComparisonOut(Model):
+    video: str
+    points: int
+    mean_count_ai: float
+    mean_count_human: float
+    mean_count_abs_diff: float
+    mean_count_pct_diff: float
+    share_within: float
+    zero_agreement: float
+
+
+class EvaluationOut(Model):
+    points_compared: int
+    share_within: Optional[float] = None
+    mean_abs_diff: Optional[float] = None
+    median_pct_diff: Optional[float] = None
+    zero_agreement: Optional[float] = None
+    meets_agreement: Optional[bool] = None
+    max_pct_diff: float
+    min_agreement: float
+    videos: list[VideoComparisonOut]
+    points: list[PointComparisonOut]
+    unmatched_human: list[str]
+    source: str
