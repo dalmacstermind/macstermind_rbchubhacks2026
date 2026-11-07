@@ -1,6 +1,6 @@
 // Client for the FinCount back end (FastAPI, running on this computer).
 // Every screen goes through `api` — the endpoints are documented in API.md at the repo root.
-import type { BackendInfo, FinCountApi, Job, Progress, QcData, SurveyData } from "../../shared/api";
+import type { BackendInfo, FinCountApi, Job, Progress, QcData, Reference, SurveyData } from "../../shared/api";
 
 let backend: BackendInfo = { url: "", token: "" };
 
@@ -43,6 +43,9 @@ const progressListeners = new Set<(p: Progress) => void>();
 let currentJob: string | null = null;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const enc = encodeURIComponent;
+// <img> can't send headers, so picture URLs carry the token in the query instead.
+const imageUrl = (path: string) => `${backend.url}${path}${backend.token ? `?token=${backend.token}` : ""}`;
+const withImages = (refs: Reference[]) => refs.map((r) => ({ ...r, image: imageUrl(r.image) }));
 
 export const api: FinCountApi = {
   model: { status: () => http("GET", "/model") },
@@ -60,6 +63,16 @@ export const api: FinCountApi = {
     update: (id, patch) => http("PATCH", `/species/${enc(id)}`, patch),
     remove: (id) => http("DELETE", `/species/${enc(id)}`),
     reset: () => http("POST", "/species/reset"),
+    references: {
+      list: async (speciesId) => withImages(await http("GET", `/species/${enc(speciesId)}/references`)),
+      add: async (speciesId, paths, by) =>
+        withImages(await http("POST", `/species/${enc(speciesId)}/references`, { paths, by })),
+      fromDetection: async (speciesId, detectionId, by) =>
+        withImages(
+          await http("POST", `/species/${enc(speciesId)}/references/from-detection`, { detectionId, by }),
+        ),
+      remove: (referenceId) => http("DELETE", `/references/${enc(referenceId)}`),
+    },
   },
 
   analysis: {
@@ -100,6 +113,7 @@ export const api: FinCountApi = {
     },
     update: (id, patch) => http("PATCH", `/surveys/${id}`, patch),
     remove: (id) => http("DELETE", `/surveys/${id}`),
+    reidentify: (id) => http("POST", `/surveys/${id}/reidentify`),
   },
 
   detections: { update: (id, patch) => http("PATCH", `/detections/${id}`, patch) },

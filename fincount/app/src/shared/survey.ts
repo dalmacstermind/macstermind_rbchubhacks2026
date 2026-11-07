@@ -20,6 +20,8 @@ export type Species = {
   custom?: boolean;
   addedBy?: string;
   addedAt?: string;
+  /** Reference pictures the species model compares fish with (0 = it can't suggest this species). */
+  referenceCount?: number;
 };
 
 export const DEFAULT_SPECIES: Species[] = [
@@ -107,6 +109,16 @@ export type Detection = {
   verified: boolean; // a person confirmed or corrected it
   editedBy?: string; // who confirmed or corrected it
   box: { x: number; y: number; w: number; h: number }; // percentages of the frame
+  /** Filled by the real pipeline (empty in demo mode). The same fish in several pictures shares a trackId. */
+  trackId?: string;
+  /** What the species model said: a species id, "Unknown" or "Potential Novel Sighting". */
+  aiLabel?: string;
+  /** The species model's top guesses, best first. Score is similarity 0–1, not a probability. */
+  suggestions?: Suggestion[];
+  /** 0–1 distance to the nearest species with reference pictures. */
+  novelty?: number | null;
+  /** Why the AI couldn't name the species, in plain English. */
+  unknownReason?: string;
 };
 
 export type Frame = {
@@ -248,3 +260,8 @@ export function qcDifference(yours: number, app: number) {
   if (yours === app) return 0;
   return (Math.abs(yours - app) / Math.max(app, 1)) * 100;
 }
+
+export type Suggestion = { speciesId: string; score: number };
+
+/** The species model's label for a fish far from every species in the list (for expert review). */
+export const NOVEL_SIGHTING = "Potential Novel Sighting";

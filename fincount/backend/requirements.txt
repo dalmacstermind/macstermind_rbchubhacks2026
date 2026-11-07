@@ -5,3 +5,16 @@ uvicorn>=0.30
 opencv-python-headless==5.0.0.93   # read video frames, write fallback clips (Apache 2.0)
 numpy==2.2.6                       # (BSD-3-Clause)
 PyYAML==6.0.3                      # config/*.yaml (MIT)
+# Vision pipeline (aquavision/detect.py, species.py, track.py). Exact versions tested together.
+# PyTorch's CUDA build also runs on CPU (CLAUDE.md, Packaging); it comes from the PyTorch index.
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.7.1+cu118                 # inference runtime (BSD-3-Clause)
+torchvision==0.22.1+cu118          # (BSD-3-Clause)
+rfdetr==1.12.0                     # runs the Community Fish Detector (Apache 2.0)
+open_clip_torch==4.2.1             # runs BioCLIP 2 (MIT)
+trackers==2.7.0                    # ByteTrack (Apache 2.0)
+supervision==0.31.5                # detection boxes for the tracker (MIT)
+transformers==5.22.2               # needed by rfdetr (Apache 2.0)
+timm==1.0.31                       # needed by open_clip (Apache 2.0)
+safetensors==0.8.0                 # BioCLIP 2 weights format (Apache 2.0)
+pillow==13.0.0                     # picture handling for BioCLIP (MIT-CMU)

@@ -345,6 +345,12 @@ function Sidebar({
             Demo mode: no fish model connected yet, so results are sample data.
           </p>
         )}
+        {model && !model.demo && (
+          <p className="rounded-md bg-sidebar-accent/40 px-3 py-2 text-xs" title={model.message}>
+            {model.device === "gpu" ? "GPU mode" : "CPU mode (slower)"}
+            {model.speciesModel ? ` · ${model.references ?? 0} reference pictures` : " · species model not installed"}
+          </p>
+        )}
         <div
           className="flex rounded-lg border border-sidebar-border p-0.5 text-xs"
           role="radiogroup"

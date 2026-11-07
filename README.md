@@ -27,10 +27,19 @@ check the fish → export to Excel or PDF. Also: blind QC by a second person, tr
 an editable species list (fish and invertebrates), settings, light/dark mode, and keyboard
 shortcuts (press `?`).
 
-**Right now the back end is a working skeleton.** The API, database, background jobs, progress,
-cancel and staff checks are all real. Only `extract_pictures()`, `detect_fish()` and the optional
-`estimate_clarity()` in `pipeline.py` are stubs: they return three sample pictures with sample fish. So the whole app
-works end to end today, and each part can be built separately.
+**The back end runs real models when their files are installed** (`backend/models/`, git-ignored):
+the Community Fish Detector (RF-DETR) finds fish, ByteTrack follows each fish across pictures, and
+BioCLIP 2 suggests species by comparing each fish with the **reference pictures** staff add to the
+species list. Every picture also gets a clarity index. Without the model files the app runs in
+**Demo mode** with sample pictures and says so. To get the model files (developers, once):
+
+```sh
+cd backend
+python -m aquavision.fetch_models          # downloads pinned, checksummed weights into backend/models
+python -m aquavision.fetch_models --verify # checks them
+```
+
+Tests of the real models: `pytest -m models` (the default `pytest` run uses small test models).
 
 ## Run it (development)
 
@@ -185,8 +194,10 @@ thing to sort out early.
 
 - Always build the back end from a **clean virtual environment**. PyInstaller bundles whatever is
   installed, so stray packages make the app bigger.
-- Run the model with **`onnxruntime`**, not PyTorch/ultralytics. The packaged back end stays around
-  100 MB instead of 1 GB+. Use `onnxruntime-directml` to use the graphics card on Windows.
-- Ship the model next to the back end: add `("models", "models")` to `datas` in `fincount-api.spec`,
-  or put it in the app's `extraResources` and pass its path in.
+- The runtime is **PyTorch (CUDA build)**, per CLAUDE.md; it also runs on CPU. The packaged back end
+  is several GB with the models, so check the NSIS size limit early (CLAUDE.md, Packaging).
+- Ship the models next to the back end: `models.dir` in `config/app.yaml` is relative to the config
+  folder, so put `models/` beside `config/` (or add it to `datas` in `fincount-api.spec`).
+- The detector is the **Community Fish Detector (RF-DETR)** until a fine-tuned YOLOX exists. Its licence
+  needs approval: see `docs/LICENCES.md`.
 - Error messages in `HTTPException` and `Job.error` are shown to staff, so keep them plain English.

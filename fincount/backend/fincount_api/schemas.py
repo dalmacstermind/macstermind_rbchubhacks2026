@@ -37,6 +37,32 @@ class Species(SpeciesIn):
     id: str
     custom: bool = False
     added_at: str = ""
+    reference_count: int = 0  # reference pictures used to identify this species (BioCLIP 2)
+
+
+class Reference(Model):
+    """A reference picture of a species. The species model compares fish with these."""
+    id: str
+    species_id: str
+    image: str  # URL path, e.g. "/references/3/image"
+    source: str  # original file name, or "Survey 4, picture 12" when made from a checked fish
+    added_by: str = ""
+    added_at: str = ""
+
+
+class ReferencesIn(Model):
+    paths: list[str] = Field(min_length=1)  # full paths of pictures on this computer
+    by: str = ""
+
+
+class ReferenceFromDetection(Model):
+    detection_id: str
+    by: str = ""
+
+
+class Suggestion(Model):
+    species_id: str
+    score: float  # similarity 0–1 to the species' reference pictures (not a probability)
 
 
 class Box(Model):
@@ -55,6 +81,12 @@ class Detection(Model):
     verified: bool  # a person confirmed or corrected it
     edited_by: str = ""  # who confirmed or corrected it
     box: Box
+    # Filled by the real pipeline (empty in demo mode):
+    track_id: str = ""  # the same fish across pictures of one video has the same track id
+    ai_label: str = ""  # species id, "Unknown" or "Potential Novel Sighting" (what the species model said)
+    suggestions: list[Suggestion] = []  # the species model's top guesses with scores, best first
+    novelty: Optional[float] = None  # 0–1 distance to the nearest species with reference pictures
+    unknown_reason: str = ""  # plain English, when the AI couldn't name the species
 
 
 class DetectionPatch(Model):
@@ -129,6 +161,15 @@ class ModelStatus(Model):
     demo: bool
     name: str
     message: str
+    device: Literal["gpu", "cpu"] = "cpu"  # shown as "GPU mode" / "CPU mode"
+    gpu: str = ""  # graphics card name in GPU mode
+    species_model: str = ""  # e.g. "BioCLIP 2", or "" when it isn't installed
+    references: int = 0  # reference pictures in the species list
+
+
+class Reidentified(Model):
+    tracks: int  # fish (tracks) matched again
+    changed: int  # boxes whose species changed (boxes staff already checked never change)
 
 
 class Health(Model):

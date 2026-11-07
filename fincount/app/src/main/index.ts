@@ -152,6 +152,15 @@ function registerIpc() {
     return r.filePaths;
   });
 
+  ipcMain.handle("files:pickImages", async () => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: "Choose reference pictures of this species",
+      properties: ["openFile", "multiSelections"],
+      filters: [{ name: "Pictures", extensions: PHOTO.map((e) => e.slice(1)) }],
+    });
+    return r.filePaths;
+  });
+
   ipcMain.handle("files:pickFolder", async () => {
     const r = await dialog.showOpenDialog(win!, {
       title: "Choose a folder of survey footage",
@@ -192,7 +201,7 @@ function registerIpc() {
 /* ───────────── Folders and file types ───────────── */
 
 const VIDEO = [".mp4", ".mov", ".avi", ".mkv"];
-const PHOTO = [".jpg", ".jpeg", ".png"];
+const PHOTO = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
 const SYSTEM = /^(\.|__MACOSX$|Thumbs\.db$|desktop\.ini$)/i;
 
 /** Folders are opened (including sub-folders); anything that isn't footage is listed with a reason. */

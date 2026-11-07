@@ -13,7 +13,12 @@ without team and client approval.
 | PyYAML | 6.0.3 | MIT | `config/*.yaml` | |
 | FastAPI, Uvicorn | see requirements.txt | MIT, BSD-3-Clause | Backend API | |
 | PyInstaller | ≥ 6 | GPL-2.0 with bootloader exception | Building `fincount-api.exe` | The exception allows bundling non-GPL apps |
-| PyTorch (CUDA build) | not yet added | BSD-3-Clause | Inference runtime for YOLOX and BioCLIP | Add exact version and CUDA libraries when installed |
+| PyTorch (CUDA build) | 2.7.1+cu118, torchvision 0.22.1+cu118 | BSD-3-Clause | Inference runtime (detector, BioCLIP 2) | Bundles NVIDIA CUDA 11.8 runtime libraries (NVIDIA EULA, redistributable with the app) |
+| rfdetr | 1.12.0 | Apache 2.0 | Runs the Community Fish Detector (RF-DETR) | Pulls in transformers (Apache 2.0) |
+| open_clip_torch | 4.2.1 | MIT | Runs BioCLIP 2 | Pulls in timm (Apache 2.0), safetensors (Apache 2.0) |
+| trackers | 2.7.0 | Apache 2.0 | ByteTrack implementation | |
+| supervision | 0.31.5 | MIT | Box containers for the tracker | |
+| Pillow | 13.0.0 | MIT-CMU | Picture handling for BioCLIP | |
 
 ## Binaries
 
@@ -36,5 +41,6 @@ without team and client approval.
 | Component | Version | Licence | Notes |
 |---|---|---|---|
 | YOLOX | not yet added | Apache 2.0 | Record model size and weight file when added |
-| BioCLIP | not yet added | MIT | Record exact model when added |
-| ByteTrack | not yet added | MIT | |
+| **Community Fish Detector (interim detector)** | RF-DETR Medium 1024, release `2026.07.06-release`, file `cfd-rf-detr-medium-1024-2026.03.24.cp-011.20260706-release.pth` (SHA-256 `2e94814c…`) | **Needs team and client approval.** Inference code (rfdetr) is Apache 2.0; the weights' repository ([filippovarini/community-fish-detector](https://github.com/filippovarini/community-fish-detector)) has no licence file, and its training data (Community Fish Detection Dataset on LILA) combines datasets with different licences | Stand-in until a fine-tuned YOLOX exists (CLAUDE.md names YOLOX). Swappable in `aquavision/detect.py`. Not Ultralytics. |
+| BioCLIP 2 | `imageomics/bioclip-2` at commit `2957b322090f9cb17ae72c71981c7218a28d81e0` (SHA-256 of `open_clip_model.safetensors`: `b7b2bf6f…`) | MIT | Species ID on detection crops (`aquavision/species.py`). ~1.7 GB of GPU memory in fp16 |
+| ByteTrack | via `trackers` 2.7.0 | MIT (algorithm), Apache 2.0 (implementation) | `aquavision/track.py` |

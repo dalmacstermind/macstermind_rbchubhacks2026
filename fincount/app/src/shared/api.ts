@@ -58,7 +58,28 @@ export type SurveyInfo = {
 
 export type SurveyData = { survey: SurveyInfo; frames: Frame[] };
 
-export type ModelStatus = { ready: boolean; demo: boolean; name: string; message: string };
+export type ModelStatus = {
+  ready: boolean;
+  demo: boolean;
+  name: string;
+  message: string;
+  device?: "gpu" | "cpu"; // shown as "GPU mode" / "CPU mode"
+  gpu?: string; // graphics card name in GPU mode
+  speciesModel?: string; // e.g. "BioCLIP 2", or "" when it isn't installed
+  references?: number; // reference pictures in the species list
+};
+
+/** A reference picture of a species. The species model compares fish with these. */
+export type Reference = {
+  id: string;
+  speciesId: string;
+  image: string; // full URL (the token is added by api.ts)
+  source: string; // original file name, or "Checked fish 12"
+  addedBy: string;
+  addedAt: string;
+};
+
+export type Reidentified = { tracks: number; changed: number };
 
 export type PickedFile = { path: string; name: string; size: number };
 export type SkippedFile = { name: string; reason: string };
@@ -94,6 +115,14 @@ export type FinCountApi = {
     update: (id: string, patch: Partial<Species>) => Promise<Species[]>;
     remove: (id: string) => Promise<Species[]>;
     reset: () => Promise<Species[]>;
+    references: {
+      list: (speciesId: string) => Promise<Reference[]>;
+      /** Pictures on this computer (full paths), e.g. from window.desktop.pickImages(). */
+      add: (speciesId: string, paths: string[], by: string) => Promise<Reference[]>;
+      /** Use a checked fish's crop as a reference picture. */
+      fromDetection: (speciesId: string, detectionId: string, by: string) => Promise<Reference[]>;
+      remove: (referenceId: string) => Promise<void>;
+    };
   };
   analysis: {
     start: (req: AnalysisRequest) => Promise<{ surveyId: number; files: FileStatus[] }>; // resolves when finished
@@ -105,6 +134,8 @@ export type FinCountApi = {
     get: (id: number) => Promise<SurveyData>;
     update: (id: number, patch: { site?: string; surveyDate?: string }) => Promise<void>;
     remove: (id: number) => Promise<void>;
+    /** Match the survey's fish again against the current reference pictures. */
+    reidentify: (id: number) => Promise<Reidentified>;
   };
   detections: {
     update: (id: string, patch: Pick<Detection, "speciesId" | "verified"> & { by: string }) => Promise<void>;
@@ -121,6 +152,8 @@ export type DesktopApi = {
   onBackendCrashed: (cb: (message: string) => void) => void;
   pickFiles: () => Promise<string[]>;
   pickFolder: () => Promise<string[]>;
+  /** Pick pictures (not videos), e.g. reference pictures of a species. */
+  pickImages: () => Promise<string[]>;
   /** Real paths of files/folders dropped on the window. */
   pathsOf: (files: File[]) => string[];
   /** Expands folders and sorts paths into usable files and skipped ones (with a reason). */

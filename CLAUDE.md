@@ -125,6 +125,7 @@ fincount/
       ui.tsx                     shared UI pieces (Chip, Modal, Field, buttons…)
       components/                VideoPlayer, PointTimeline, PointPanel, UnknownGallery,
                                  LabelCanvas, LabelPicker, NewSpeciesForm, TrendsChart…
+                                 (today: SuggestionButtons, ReferencePictures, UseAsReference, MatchAgainButton)
       views/                     Upload, Processing, Results, ImageResults, Label, QC,
                                  Trends, Species, Settings, People
     test/                        Vitest
@@ -137,9 +138,13 @@ fincount/
       frames.py                  read frames from local video (OpenCV) for a time range
       clips.py                   save each point's context clip (FFmpeg, OpenCV fallback)
       protocol.py                analysis window, subsample timestamps, context ranges
-      detect.py                  fish + invertebrate detector (YOLOX; Grounding DINO fallback)
+      detect.py                  fish + invertebrate detector (interim: Community Fish Detector RF-DETR;
+                                 target: YOLOX; Grounding DINO fallback)
       species.py                 BioCLIP on crops, registry matching, novelty distance
       track.py                   ByteTrack wrapper
+      analyse.py                 one file: pictures → detect → track → species → clarity (used by the job)
+      device.py                  GPU/CPU choice at start-up; one lock for all GPU work
+      fetch_models.py            developer tool: put pinned, checksummed weights into models/ (never at runtime)
       count.py                   tolerance-window counting, MeanCount, richness, image counts
       clarity.py                 clarity index per frame/point/video; suggested visibility; pole bands (P2)
       trends.py                  per-video summaries for the Trends page

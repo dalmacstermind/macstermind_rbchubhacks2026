@@ -153,3 +153,102 @@ def _fourcc(section: dict[str, Any], path: Path) -> str:
     if len(value) != 4:
         raise ConfigError(f"{path.name}: clips.opencv_fourcc must be 4 characters, e.g. mp4v (got {value!r}).")
     return value
+
+
+# ── Vision pipeline settings (models, detect, species, track, clarity sections of app.yaml) ──
+
+@dataclass(frozen=True)
+class DetectConfig:
+    checkpoint: Path
+    conf_threshold: float
+    nms_iou: float
+    min_box_px: float
+
+
+@dataclass(frozen=True)
+class SpeciesConfig:
+    model_dir: Path
+    match_threshold: float
+    margin: float
+    novelty_threshold: float
+    top_k: int
+    crop_padding: float
+    min_crop_px: float
+
+
+@dataclass(frozen=True)
+class TrackConfig:
+    enabled: bool
+    lost_buffer_s: float
+    match_iou: float
+    activation_threshold: float
+
+
+@dataclass(frozen=True)
+class ClarityConfig:
+    weights: dict[str, float]
+
+
+@dataclass(frozen=True)
+class VisionConfig:
+    models_dir: Path
+    detect: DetectConfig
+    species: SpeciesConfig
+    track: TrackConfig
+    clarity: ClarityConfig
+
+
+CLARITY_MEASURES = ("contrast", "sharpness", "haze", "colour", "particles")
+
+
+def load_vision_config(path: Path | None = None) -> VisionConfig:
+    """Model locations and thresholds for detection, species ID, tracking and the clarity index."""
+    path = path or default_config_dir() / "app.yaml"
+    data = _read(path)
+    models, det, sp, trk, clar = (_section(data, n, path) for n in ("models", "detect", "species", "track", "clarity"))
+    models_dir = Path(_text(models, "models.dir", path))
+    if not models_dir.is_absolute():
+        models_dir = (path.parent / models_dir).resolve()
+    weights = clar.get("weights")
+    if not isinstance(weights, dict) or set(weights) != set(CLARITY_MEASURES):
+        raise ConfigError(f"{path.name}: clarity.weights must list exactly {', '.join(CLARITY_MEASURES)}.")
+    w = {k: _num(weights, f"clarity.weights.{k}", path, minimum=0) for k in CLARITY_MEASURES}
+    if sum(w.values()) <= 0:
+        raise ConfigError(f"{path.name}: clarity.weights must not all be 0.")
+    enabled = trk.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ConfigError(f"{path.name}: track.enabled must be true or false.")
+    cfg = VisionConfig(
+        models_dir=models_dir,
+        detect=DetectConfig(
+            checkpoint=models_dir / _text(det, "detect.checkpoint", path),
+            conf_threshold=_num(det, "detect.conf_threshold", path, minimum=0),
+            nms_iou=_num(det, "detect.nms_iou", path, minimum=0, strict=True),
+            min_box_px=_num(det, "detect.min_box_px", path, minimum=0),
+        ),
+        species=SpeciesConfig(
+            model_dir=models_dir / _text(sp, "species.model_dir", path),
+            match_threshold=_num(sp, "species.match_threshold", path, minimum=0),
+            margin=_num(sp, "species.margin", path, minimum=0),
+            novelty_threshold=_num(sp, "species.novelty_threshold", path, minimum=0),
+            top_k=int(_num(sp, "species.top_k", path, minimum=1)),
+            crop_padding=_num(sp, "species.crop_padding", path, minimum=0),
+            min_crop_px=_num(sp, "species.min_crop_px", path, minimum=1),
+        ),
+        track=TrackConfig(
+            enabled=enabled,
+            lost_buffer_s=_num(trk, "track.lost_buffer_s", path, minimum=0, strict=True),
+            match_iou=_num(trk, "track.match_iou", path, minimum=0, strict=True),
+            activation_threshold=_num(trk, "track.activation_threshold", path, minimum=0),
+        ),
+        clarity=ClarityConfig(weights=w),
+    )
+    for key, value in (("detect.conf_threshold", cfg.detect.conf_threshold), ("detect.nms_iou", cfg.detect.nms_iou),
+                       ("species.match_threshold", cfg.species.match_threshold),
+                       ("species.novelty_threshold", cfg.species.novelty_threshold),
+                       ("track.match_iou", cfg.track.match_iou)):
+        if value > 1:
+            raise ConfigError(f"{path.name}: {key} must be between 0 and 1 (got {value}).")
+    if cfg.species.novelty_threshold > cfg.species.match_threshold:
+        raise ConfigError(f"{path.name}: species.novelty_threshold must not be above species.match_threshold.")
+    return cfg

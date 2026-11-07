@@ -10,6 +10,7 @@ import {
   type Summary,
 } from "../../../shared/survey";
 import { api } from "../api";
+import { MatchAgainButton } from "../components/MatchAgainButton";
 import { buildWorkbook } from "../exportXlsx";
 import type { QcState } from "../overview";
 import {
@@ -91,6 +92,7 @@ export function ReportView({
       )}
       {editing && <EditSurvey data={data} onClose={() => setEditing(false)} onSaved={onChanged} />}
       <Header eyebrow={`Step 3 of 4 · ${survey.site}`} title="Survey report">
+        <MatchAgainButton surveyId={survey.id} onDone={onChanged} />
         <button onClick={() => onReview("all")} className={btnGhost}>
           Check the fish
         </button>

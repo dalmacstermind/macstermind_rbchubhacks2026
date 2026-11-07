@@ -15,9 +15,13 @@ from fastapi.responses import FileResponse
 
 from . import __version__
 from .db import Database
+from aquavision.detect import ModelMissingError
+
+from . import pipeline
 from .pipeline import Jobs, model_status
 from .schemas import (AnalysisRequest, DetectionPatch, Frame, Health, Job, ModelStatus, Person, QcCountIn, QcData,
-                      Species, SpeciesIn, SpeciesPatch, Storage, SurveyData, SurveyInfo, SurveyPatch)
+                      Reference, ReferenceFromDetection, ReferencesIn, Reidentified, Species, SpeciesIn, SpeciesPatch,
+                      Storage, SurveyData, SurveyInfo, SurveyPatch)
 
 DATA_DIR = Path(os.environ.get("FINCOUNT_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 # The desktop app passes a random token so other programs (or web pages) on this PC can't use the API.
@@ -45,7 +49,7 @@ def health():
 
 @app.get("/model", response_model=ModelStatus, tags=["app"])
 def get_model():
-    return model_status()
+    return model_status(db)
 
 
 @app.get("/storage", response_model=Storage, tags=["app"])
@@ -102,7 +106,8 @@ def update_species(species_id: str, body: SpeciesPatch):
 
 @app.delete("/species/{species_id}", response_model=list[Species], tags=["species"])
 def remove_species(species_id: str):
-    db.remove_species(species_id)  # only species staff added can be removed
+    for path in db.remove_species(species_id):  # only species staff added can be removed
+        path.unlink(missing_ok=True)
     return db.list_species()
 
 
@@ -110,6 +115,66 @@ def remove_species(species_id: str):
 def reset_species():
     db.reset_species()
     return db.list_species()
+
+
+# ── Species reference pictures (the species model compares fish with these) ──
+
+def _species_or_404(species_id: str) -> None:
+    if not any(s.id == species_id for s in db.list_species()):
+        raise HTTPException(404, "No such species")
+
+
+@app.get("/species/{species_id}/references", response_model=list[Reference], tags=["species"])
+def list_references(species_id: str):
+    _species_or_404(species_id)
+    return db.list_references(species_id)
+
+
+@app.post("/species/{species_id}/references", response_model=list[Reference], tags=["species"])
+def add_references(species_id: str, body: ReferencesIn):
+    """Add pictures from this computer (full paths, like /analyses) as references for a species."""
+    _species_or_404(species_id)
+    missing = [p for p in body.paths if not Path(p).is_file()]
+    if missing:
+        raise HTTPException(400, f"Can't find: {', '.join(Path(m).name for m in missing)}")
+    try:
+        pipeline.add_reference_pictures(db, DATA_DIR, species_id, body.paths, body.by)
+    except ModelMissingError as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return db.list_references(species_id)
+
+
+@app.post("/species/{species_id}/references/from-detection", response_model=list[Reference], tags=["species"])
+def add_reference_from_detection(species_id: str, body: ReferenceFromDetection):
+    """Use a checked fish's crop as a reference picture for a species."""
+    _species_or_404(species_id)
+    try:
+        pipeline.add_reference_from_detection(db, DATA_DIR, species_id, int(body.detection_id), body.by)
+    except ModelMissingError as e:
+        raise HTTPException(503, str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return db.list_references(species_id)
+
+
+@app.delete("/references/{ref_id}", status_code=204, tags=["species"])
+def remove_reference(ref_id: int):
+    path = db.remove_reference(ref_id)
+    if path:
+        path.unlink(missing_ok=True)
+    return Response(status_code=204)
+
+
+@app.get("/references/{ref_id}/image", response_class=FileResponse, tags=["species"])
+def reference_image(ref_id: int):
+    path = db.reference_image(ref_id)
+    if not path or not path.is_file():
+        raise HTTPException(404, "No such picture")
+    return FileResponse(path, headers={"Cache-Control": "max-age=31536000, immutable"})
 
 
 # ── Analysis ──
@@ -166,6 +231,18 @@ def update_survey(survey_id: int, body: SurveyPatch):
     if not db.update_survey(survey_id, body.site, body.survey_date):
         raise HTTPException(404, "No such survey")
     return Response(status_code=204)
+
+
+@app.post("/surveys/{survey_id}/reidentify", response_model=Reidentified, tags=["surveys"])
+def reidentify(survey_id: int):
+    """Match the survey's fish again against the current reference pictures (after adding references).
+    Boxes staff already checked keep their species."""
+    if not db.get_survey(survey_id):
+        raise HTTPException(404, "No such survey")
+    try:
+        return pipeline.reidentify(db, survey_id)
+    except ModelMissingError as e:
+        raise HTTPException(503, str(e))
 
 
 @app.delete("/surveys/{survey_id}", status_code=204, tags=["surveys"])

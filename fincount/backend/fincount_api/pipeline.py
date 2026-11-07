@@ -1,12 +1,11 @@
-"""The analysis pipeline: footage → pictures → fish detector → database.
+"""The analysis job: footage → pictures → fish detector → species → database.
 
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  INTEGRATION TEAM: this file is yours. Right now it is a STUB (demo mode):   ║
-║  videos produce three sample pictures with sample fish, and photos get        ║
-║  made-up boxes. Replace the functions marked TODO 1–2 (3 is optional);        ║
-║  everything else                                                              ║
-║  (progress, cancel, database, API) already works.                             ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+Real pipeline (when the model files are in the models folder): the vision work happens in
+`aquavision` (analyse.py: frames → detect → track → species → clarity); this file only runs it
+as a background job, saves the pictures and writes the results to the database.
+
+Demo mode (no model files): the old stub below still runs, and the app shows "Demo mode" so
+sample results are never presented as live inference (CLAUDE.md, hard constraint 7).
 """
 import random
 import shutil
@@ -17,11 +16,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator
 
+import cv2
+import numpy as np
+
+from aquavision import device
+from aquavision.analyse import Analyser, Cancelled, read_image
+from aquavision.config import ConfigError, VisionConfig, load_vision_config
+from aquavision.detect import CfdDetector, ModelMissingError
+from aquavision.species import BioClipEncoder, ReferenceIndex, crop_box, match
+
 from .db import Database
-from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus
+from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus, Reidentified
 
 SAMPLE_DIR = Path(__file__).parent / "sample"
-IMAGE_EXT = {".jpg", ".jpeg", ".png"}
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv"}
 
 
@@ -89,10 +97,164 @@ def estimate_clarity(picture: Path) -> float | None:
     return None
 
 
-def model_status() -> ModelStatus:
-    """Tell the app whether a real model is loaded. Update when TODO 2 is done."""
-    return ModelStatus(ready=True, demo=True, name="Demo mode",
-                       message="No fish model connected yet, so results are sample data.")
+class Vision:
+    """The real models, created once and kept (CLAUDE.md: never reload per frame or request).
+
+    Loading is lazy (first analysis or reference picture) so the API answers /health quickly.
+    """
+
+    def __init__(self, cfg: VisionConfig | None = None, detector=None, encoder=None):
+        self.cfg = cfg
+        self.error = ""
+        if self.cfg is None:
+            try:
+                self.cfg = load_vision_config()
+            except ConfigError as e:
+                self.error = str(e)
+        self._detector = detector
+        self._encoder = encoder
+        self.lock = threading.Lock()
+
+    @property
+    def installed(self) -> bool:
+        """True when the fish detector's weights are on disk (otherwise: demo mode)."""
+        return self._detector is not None or (self.cfg is not None and self.cfg.detect.checkpoint.is_file())
+
+    @property
+    def species_installed(self) -> bool:
+        return self._encoder is not None or (self.cfg is not None and (self.cfg.species.model_dir /
+                                                                        "open_clip_config.json").is_file())
+
+    @property
+    def encoder_name(self) -> str:
+        return getattr(self._encoder, "name", "BioCLIP 2")
+
+    def detector(self):
+        with self.lock:
+            if self._detector is None:
+                self._detector = CfdDetector(self.cfg.detect)
+            return self._detector.load() if hasattr(self._detector, "load") else self._detector
+
+    def encoder(self):
+        """The species model, or None when it isn't installed (species then stay "Unknown")."""
+        if not self.species_installed:
+            return None
+        with self.lock:
+            if self._encoder is None:
+                self._encoder = BioClipEncoder(self.cfg.species)
+            return self._encoder.load() if hasattr(self._encoder, "load") else self._encoder
+
+    def analyser(self) -> Analyser:
+        return Analyser(self.cfg, self.detector(), self.encoder())
+
+    def status(self, references: int) -> ModelStatus:
+        mode = device.mode()
+        if not self.installed:
+            why = self.error or "The fish detector files aren't in the models folder yet"
+            return ModelStatus(ready=True, demo=True, name="Demo mode", device=mode, gpu=device.gpu_name() or "",
+                               message=f"{why}, so results are sample data.")
+        species = self.encoder_name if self.species_installed else ""
+        msg = (f"Fish detector: Community Fish Detector (RF-DETR). Species: {species or 'not installed'}"
+               f" with {references} reference picture{'s' if references != 1 else ''}.")
+        if species and not references:
+            msg += " Add reference pictures in Species so fish can be identified."
+        return ModelStatus(ready=True, demo=False, name="Community Fish Detector + BioCLIP 2" if species else
+                           "Community Fish Detector", message=msg, device=mode, gpu=device.gpu_name() or "",
+                           species_model=species, references=references)
+
+
+VISION = Vision()
+
+
+def set_vision(v: Vision) -> None:
+    """Test hook: swap in a Vision with test models."""
+    global VISION
+    VISION = v
+
+
+def model_status(db: Database | None = None) -> ModelStatus:
+    """Whether the real models are installed, GPU/CPU mode, and how many reference pictures exist."""
+    refs = len(db.reference_vectors(VISION.encoder_name)) if db is not None else 0
+    return VISION.status(refs)
+
+
+def species_for(label: str, registry: set[str]) -> str:
+    """The species id a detection starts with: the AI's species, or "unknown"."""
+    return label if label in registry else "unknown"
+
+
+def _to_percent(box: tuple[float, float, float, float], w: int, h: int) -> Box:
+    x1, y1, x2, y2 = box
+    return Box(x=100 * x1 / w, y=100 * y1 / h, w=100 * (x2 - x1) / w, h=100 * (y2 - y1) / h)
+
+
+def _save_jpg(img: np.ndarray, path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        raise RuntimeError("A picture couldn't be saved.")
+    buf.tofile(str(path))  # tofile works with non-ASCII folder names on Windows
+    return path
+
+
+# ── Species reference pictures ──
+
+def _need_species_model():
+    enc = VISION.encoder() if VISION.cfg is not None else None
+    if enc is None:
+        raise ModelMissingError("The species model (BioCLIP 2) isn't installed, so reference pictures can't be "
+                                "used yet. Ask the integration team to add it to the models folder.")
+    return enc
+
+
+def add_reference_pictures(db: Database, data_dir: Path, species_id: str, paths: list[str], by: str) -> int:
+    """Add pictures from this computer as references for one species. Returns how many were added."""
+    enc = _need_species_model()
+    out_dir = data_dir / "references" / species_id
+    added = 0
+    for p in paths:
+        src = Path(p)
+        img = read_image(src)  # raises a plain-English error for unreadable files
+        h, w = img.shape[:2]
+        if w > 1024:
+            img = cv2.resize(img, (1024, round(h * 1024 / w)), interpolation=cv2.INTER_AREA)
+        dest = _save_jpg(img, out_dir / f"{uuid.uuid4().hex}.jpg")
+        db.add_reference(species_id, dest, enc.encode([img])[0], VISION.encoder_name, src.name, by)
+        added += 1
+    return added
+
+
+def add_reference_from_detection(db: Database, data_dir: Path, species_id: str, detection_id: int, by: str) -> None:
+    """Use a checked fish's crop as a reference picture ("Use as reference image")."""
+    enc = _need_species_model()
+    found = db.detection_crop_source(detection_id)
+    if not found:
+        raise FileNotFoundError("That fish isn't in the database any more.")
+    picture, box = found
+    img = read_image(picture)
+    h, w = img.shape[:2]
+    pad = VISION.cfg.species.crop_padding
+    crop = crop_box(img, (box.x * w / 100, box.y * h / 100, (box.x + box.w) * w / 100, (box.y + box.h) * h / 100),
+                    pad, 8)
+    if crop is None:
+        raise ValueError("That fish is too small to use as a reference picture.")
+    dest = _save_jpg(crop, data_dir / "references" / species_id / f"{uuid.uuid4().hex}.jpg")
+    db.add_reference(species_id, dest, enc.encode([crop])[0], VISION.encoder_name, f"Checked fish {detection_id}", by)
+
+
+def reidentify(db: Database, survey_id: int) -> Reidentified:
+    """Match every fish of a survey again against the current reference pictures (no re-detection)."""
+    if VISION.cfg is None or not VISION.species_installed:
+        raise ModelMissingError("The species model (BioCLIP 2) isn't installed.")
+    index = ReferenceIndex.build(db.reference_vectors(VISION.encoder_name))
+    registry = {s.id for s in db.list_species()}
+    changed = 0
+    tracks = db.track_vectors(survey_id)
+    for track_id, vec in tracks.items():
+        r = match(vec, index, VISION.cfg.species)
+        changed += db.set_track_species(survey_id, track_id, species_for(r.label, registry), r.label,
+                                        r.top_k, r.novelty, r.reason)
+    return Reidentified(tracks=len(tracks), changed=changed)
 
 
 _DEMO_PICTURES: dict[str, int] = {}  # DEMO only: saved picture path → sample number
@@ -161,6 +323,9 @@ class Jobs:
             job.percent, job.stage, job.detail = int(percent), stage, detail
 
         try:
+            if VISION.installed:
+                self._run_real(state, req, out_dir, update)
+                return
             n = len(req.files)
             for i, (f, status) in enumerate(zip(req.files, job.files)):
                 if status.state == "skipped":
@@ -204,6 +369,67 @@ class Jobs:
         except Exception as e:  # shown to staff on the start screen
             self._discard(job, out_dir)
             job.state, job.error = "failed", str(e)
+
+    def _run_real(self, state: _JobState, req: AnalysisRequest, out_dir: Path, update):
+        """The real pipeline (aquavision) for every file of the survey. One bad file never stops the rest."""
+        job = state.job
+        update(0, 0, "Loading the fish detector and species model")
+        try:
+            analyser = VISION.analyser()
+        except ModelMissingError as e:
+            raise RuntimeError(str(e)) from None
+        index = ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name))
+        registry = {s.id for s in self.db.list_species()}
+        n = len(req.files)
+        for i, (f, status) in enumerate(zip(req.files, job.files)):
+            if status.state == "skipped":
+                continue
+            src, base, span, key = Path(f), i / n * 95, 95 / n, f"f{i + 1}"
+            status.state = "working"
+
+            def progress(fr: float, src=src, base=base, span=span):
+                stage = 0 if fr < 0.02 else 2 if fr < 0.9 else 3
+                update(base + fr * span, stage, f"{src.name}: {int(fr * 100)}%")
+
+            update(base, 0, f"Opening {src.name}")
+            try:
+                res = analyser.analyse(
+                    src, key, sampling_fps=req.sampling, enhance=req.enhance, index=index,
+                    save_picture=lambda img, k, key=key: _save_jpg(img, out_dir / f"{key}_{k:05d}.jpg"),
+                    on_progress=progress, cancelled=state.cancel.is_set)
+                found, kept_tracks = 0, set()
+                for tid, vec in res.track_vectors.items():
+                    crop = res.track_crops.get(tid)
+                    crop_path = str(_save_jpg(crop, out_dir / "crops" / f"{tid}.jpg")) if crop is not None else ""
+                    self.db.save_track_vectors(job.survey_id, tid, vec, crop_path)
+                for pic in res.pictures:
+                    rows = []
+                    for d in pic.detections:
+                        box = _to_percent(d.box, pic.width, pic.height)
+                        if req.ignore_specks and box.w * box.h < 30:  # < 0.3% of the picture = speck
+                            continue
+                        sr = res.species[d.track_id]
+                        rows.append((species_for(sr.label, registry), round(d.conf, 3), box,
+                                     {"track_id": d.track_id, "ai_label": sr.label, "top_k": sr.top_k,
+                                      "novelty": sr.novelty, "unknown_reason": sr.reason}))
+                    found += len(rows)
+                    kept_tracks.update(r[3]["track_id"] for r in rows)
+                    self.db.add_frame(job.survey_id, src.name, pic.timestamp, str(pic.image_path), rows, pic.clarity)
+                fish = len(kept_tracks)  # after dropping specks, so it matches what staff see
+                status.state = "done"
+                status.detail = (f"{len(res.pictures)} picture{'s' if len(res.pictures) != 1 else ''} · "
+                                 f"{found} box{'es' if found != 1 else ''} · {fish} tracked fish")
+            except Cancelled:
+                raise InterruptedError from None
+            except Exception as e:  # one bad file never stops the rest of the batch
+                status.state, status.detail = "failed", str(e) or e.__class__.__name__
+        if not any(fs.state == "done" for fs in job.files):
+            raise RuntimeError("None of the files could be read. "
+                               + "; ".join(f"{fs.name}: {fs.detail}" for fs in job.files if fs.detail))
+        update(97, 4, "Writing the report")
+        self.db.set_survey_status(job.survey_id, "done")
+        update(100, 4, "Done")
+        job.state = "done"
 
     def _discard(self, job: Job, out_dir: Path):
         self.db.delete_survey(job.survey_id)
