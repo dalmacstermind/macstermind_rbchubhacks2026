@@ -44,6 +44,19 @@ While the back end is running, the same API is browsable and testable at **http:
 | DELETE | `/species/{id}` | | `Species[]`. Only species staff added (`custom: true`) can be removed |
 | POST | `/species/reset` | | `Species[]` back to the original list |
 
+### Species reference pictures (species identification)
+
+The species model (BioCLIP 2) compares every fish with these pictures. A species with no reference
+pictures can't be suggested. Pictures are read from this computer (full paths, like `/analyses`).
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/species/{id}/references` | | `Reference[]` |
+| POST | `/species/{id}/references` | `{paths: string[], by?}` | `Reference[]`. `400` if a file is missing or not a picture; `503` if the species model isn't installed |
+| POST | `/species/{id}/references/from-detection` | `{detectionId, by?}` | `Reference[]`. Uses a checked fish's crop |
+| DELETE | `/references/{refId}` | | `204` |
+| GET | `/references/{refId}/image` | | the JPG (token in the query, like frame pictures) |
+
 ### Analysis (runs in the background)
 
 | Method | Path | Body | Returns |
@@ -62,6 +75,45 @@ While the back end is running, the same API is browsable and testable at **http:
 | DELETE | `/surveys/{id}` | | `204`. Also deletes its pictures |
 | GET | `/frames/{frameId}/image` | | the JPG/PNG picture |
 | PATCH | `/detections/{id}` | `{speciesId, verified, by}` | `204`. Saved the moment staff click; `by` is who did it |
+| POST | `/surveys/{id}/reidentify` | | `{tracks, changed}`. Matches the survey's fish again against the current reference pictures (no new detection). Boxes staff checked keep their species |
+
+### Protocol results (subsample points, MeanCount, species richness)
+
+Nothing is counted until a person confirms the video's analysis window (`PATCH /videos/{id}`, below):
+confirming starts the point counting in the background (`countState` in the results), and confirming
+a different window counts again from scratch. Videos too short for the protocol are flagged, not counted.
+
+Videos are analysed per the FFH protocol (`config/protocol.yaml`): confirmed window, a point every
+`subsample.interval_s`, each point's ±`context_s` clip tracked so one fish counts once, counted only
+within ±`count.tolerance_s`, plus a sparse full-window scan for species richness. Images get per-image
+counts and are never in MeanCount. **All counting happens in the back end**; results are recalculated
+on every request, so labels and point edits show up at once.
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/surveys/{id}/results` | | `SurveyResults` |
+| PATCH | `/videos/{id}/details` | `{recordedAt?, transect?, stat?, visibility?}` | `204`. Recording details; the window itself is confirmed with `PATCH /videos/{id}` below |
+| PATCH | `/points/{id}` | `{totalFish?, invertebrates?, visibility?, notes?, by}` | `204`. Stored next to the AI's values; `-1` puts a count back to the AI's |
+| GET | `/points/{id}/clip` | | the ±context clip (MP4; token in the query) |
+
+### Labelling unknown fish (Label page)
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/surveys/{id}/unknowns` | | `Unknowns`: one card per tracked organism the AI left as Unknown / Potential Novel Sighting |
+| GET | `/surveys/{id}/tracks/{trackId}/crop` | | the organism's best crop (JPG) |
+| POST | `/labels` | `LabelRequest` | `{labelIds, remaining}`. One or more tracks (bulk), or a box drawn on a picture |
+| DELETE | `/labels/{id}` | | `{labelIds: [], remaining}`. Undo: the pictures go back to what they said before |
+
+A drawn box that overlaps an existing organism by `label.match_iou` relabels it instead of adding one.
+Labels are chosen, never typed: `species` must be a registry id; `invertebrateType` one of crab, shrimp,
+worm, snail.
+
+### Evaluation (the AI against hand counts)
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| POST | `/surveys/{id}/evaluation` | `{path?}` | `Evaluation`. `path`: a CSV of hand counts on this computer (`video, point, total_fish`); no path: the points staff reviewed |
 
 ### Videos and analysis windows
 
@@ -87,19 +139,27 @@ before the last 60 s of the video.
 ## Shapes
 
 ```ts
-Species        { 
-                    id: string, 
-                    common: string, 
+Species        {
+                    id: string,
+                    common: string,
                     scientific: string,
-                    status: "native" | "invasive" | "unusual", 
+                    status: "native" | "invasive" | "unusual",
                     habitat: string,
                     kind: "fish" | "invertebrate",  // invertebrates (e.g. crabs) are counted separately
-                    custom: boolean, 
-                    addedBy: string, 
-                    addedAt: string 
+                    custom: boolean,
+                    addedBy: string,
+                    addedAt: string,
+                    referenceCount: number      // reference pictures the species model uses (0 = can't be suggested)
                 }
 
-AnalysisRequest{ 
+Reference      {
+                    id: string, speciesId: string,
+                    image: string,              // path like "/references/3/image"
+                    source: string,             // original file name, or "Checked fish 12"
+                    addedBy: string, addedAt: string
+                }
+
+AnalysisRequest{
                     site: string, surveyDate: string,  // "YYYY-MM-DD" filmed, or ""
                     person: string,                     // who started it
                     environment: string,
@@ -108,31 +168,31 @@ AnalysisRequest{
                     enhance: boolean,           // clear up murky water
                     ignoreSpecks: boolean,      // drop boxes smaller than 0.3% of the picture
                     files: string[]            // full paths on this computer (the app sends paths, not uploads)
-                }           
+                }
 
-Job            { 
-                    jobId: string, 
-                    surveyId: number, 
+Job            {
+                    jobId: string,
+                    surveyId: number,
                     state: "running" | "done" | "failed" | "cancelled",
                     percent: number,            // 0–100
                     stage: number,              // 0 splitting, 1 clearing up water, 2 finding fish,
                                              // 3 identifying species, 4 writing report
                     detail: string,             // shown under the progress bar, e.g. "clip.mp4: 12 possible fish so far"
                     error: string | null,       // plain English, shown to staff when state = "failed"
-                    files: { name, state: "waiting" | "working" | "done" | "failed" | "skipped", detail }[] 
+                    files: { name, state: "waiting" | "working" | "done" | "failed" | "skipped", detail }[]
                 }
                 // one bad file never stops the batch; **detail** says why
 
-SurveyInfo     { 
-                    id: number, 
-                    site: string, 
-                    environment: string, 
-                    threshold: number, 
+SurveyInfo     {
+                    id: number,
+                    site: string,
+                    environment: string,
+                    threshold: number,
                     createdAt: string,
-                    surveyDate: string, 
+                    surveyDate: string,
                     createdBy: string,
-                    files: string[], 
-                    frameCount: number, status: "running" | "done" | "failed" | "cancelled" 
+                    files: string[],
+                    frameCount: number, status: "running" | "done" | "failed" | "cancelled"
                 }
 
 SurveyData     { survey: SurveyInfo, frames: Frame[] }
@@ -142,44 +202,119 @@ Video          { id: string, surveyId: number, fileName: string, durationS: numb
                  windowStartS: number | null, windowEndS: number | null,   // null until a person confirms
                  confirmedBy: string, confirmedAt: string }
 
-Frame          { 
-                    id: string, 
+Frame          {
+                    id: string,
                     image: string,              // path like "/frames/12/image"
                     source: string,             // original file name
                     timestamp: string,          // "00:01:47", or "Photo"
                     clarity: number | null,     // 0–100 water-clarity estimate (pipeline TODO 3), for Trends
-                    detections: Detection[] 
+                    detections: Detection[]
                 }
 
-Detection      { 
+Detection      {
                     id: string,
                     speciesId: string,          // a species id, "unknown", or "not_fish"
                     modelSpeciesId: string,     // what the model said; never changes, so staff can undo
                     confidence: number,         // 0–1
                     verified: boolean,          // a person confirmed or corrected it
                     editedBy: string,           // who
-                    box: { x, y, w, h }        // percentages
+                    box: { x, y, w, h },       // percentages
+                    // Real pipeline only (empty/absent in demo mode):
+                    trackId: string,            // the same fish across pictures of one video shares a trackId
+                    aiLabel: string,            // species id, "Unknown" or "Potential Novel Sighting"
+                    suggestions: { speciesId, score }[],  // top guesses, best first; score = similarity 0–1, not a probability
+                    novelty: number | null,     // 0–1 distance to the nearest species with reference pictures
+                    unknownReason: string       // plain English, when the AI couldn't name the species
                 }       
 
-ModelStatus    { 
-                    ready: boolean, 
-                    demo: boolean, 
-                    name: string, 
-                    message: string 
+ModelStatus    {
+                    ready: boolean,
+                    demo: boolean,              // true when the model files aren't installed: results are sample data
+                    name: string,
+                    message: string,
+                    device: "gpu" | "cpu",      // shown as "GPU mode" / "CPU mode"
+                    gpu: string,                // graphics card name in GPU mode
+                    speciesModel: string,       // "BioCLIP 2", or "" when it isn't installed
+                    references: number          // reference pictures in the species list
                 }
 
 Person         { name: string, role: string }
 
-QcData         { 
+QcData         {
                     sample: string[],           // frame ids picked for the recount
-                    counts: { frameId, person, fish, invertebrates, createdAt }[] 
+                    counts: { frameId, person, fish, invertebrates, createdAt }[]
                 }
-                
+
 Storage        { dataDir, freeBytes, totalBytes, picturesBytes, databaseBytes }
+
+SurveyResults  { videos: VideoResult[], images: ImageResult[], unknownsRemaining, visibilityCategories: string[] }
+
+VideoResult    {
+                    id, name, recordedAt, transect, stat,
+                    windowStartS, windowEndS: number | null,   // confirmed by a person; null until then
+                    proposedStartS, proposedEndS: number | null, proposedReason: string, settled: boolean | null,
+                    tooShort: boolean,          // flagged: not processed
+                    confirmedBy: string,
+                    countState: "" | "queued" | "running" | "done" | "failed",   // "" = waiting for confirmation
+                    countDetail: string,
+                    points: PointResult[],
+                    meanCount: number | null,   // final (staff values where set); zero points included
+                    meanCountAi: number | null, // the AI's alone
+                    speciesRichness: number, speciesFound: string[],
+                    clarityIndex, clarityMin, clarityMax: number | null,   // estimate, not turbidity
+                    clarityTrend: "improving" | "worsening" | "stable" | null,
+                    visibility: string | null, reviewed: boolean, unknownsRemaining: number
+                }
+
+PointResult    {
+                    id, pointNo, timestampS,
+                    totalFish, invertebrates,   // final
+                    perSpecies: {speciesId: count}, unknown, speciesObserved,
+                    clarityIndex, suggestedVisibility, visibility,   // visibility = confirmed by staff
+                    notes, staffNotes, needsReview, reviewed, editedBy,
+                    uncertain, outside,         // not counted: below the threshold / outside ±tolerance
+                    ai: { totalFish, invertebrates },   // never changed
+                    clip: string | null         // "/points/3/clip"
+                }
+
+ImageResult    { fileId, relPath, totalFish, invertebrates, perSpecies, unknown, notes, needsReview }
+
+Unknowns       { fish: UnknownFish[], remaining, remainingByFile: {file: count} }
+
+UnknownFish    {
+                    trackId, crop,              // "/surveys/1/tracks/f1-p1-t0/crop"
+                    source: { kind: "video" | "image", file, videoId, pointNo, timestamp, role: "point" | "scan" | "photo" },
+                    frameIds: string[], bestFrameId, box,
+                    aiLabel, suggestions: {speciesId, score}[], reason,
+                    label: { id, action, species, invertebrateType, labelledBy, labelledAt } | null
+                }
+
+LabelRequest   {
+                    surveyId, action: "species" | "unidentifiable" | "not_organism" | "invertebrate",
+                    trackIds?: string[], species?, invertebrateType?, useAsReference?,
+                    frameId?, box?,             // a box drawn around an organism the AI missed
+                    by
+                }
+
+Evaluation     {
+                    pointsCompared, shareWithin, meanAbsDiff, medianPctDiff, zeroAgreement, meetsAgreement,
+                    maxPctDiff, minAgreement,   // from protocol.yaml qc.*
+                    videos: { video, points, meanCountAi, meanCountHuman, meanCountAbsDiff, meanCountPctDiff,
+                              shareWithin, zeroAgreement }[],
+                    points: { video, pointNo, ai, human, absDiff, pctDiff, within }[],
+                    unmatchedHuman: string[], source
+                }
 ```
 
 ## Who decides what
 
-- **The back end** finds fish and stores everything. It returns **every** detection with confidence ≥ 0.2, including unsure ones.
-- **The app** applies the certainty threshold, works out the counts (MaxN: the most of each species seen in one picture), compares blind QC counts, and builds the Excel/PDF exports. So the back end never needs to calculate counts.
+- **The back end** finds fish and stores everything. It returns **every** detection with confidence ≥ 0.2
+  (`detect.conf_threshold` in `config/app.yaml`), including unsure ones. `confidence` is the fish
+  detector's; the species model's result is in `aiLabel` / `suggestions`. A species is only filled in
+  when the species model is sure (`species.match_threshold` and `species.margin`); otherwise
+  `speciesId` is `"unknown"` and staff pick from the suggestions.
+- **The back end** calculates the protocol figures (point counts, MeanCount, species richness, image
+  counts, clarity) in `GET /surveys/{id}/results`. The app only shows them and writes them to Excel.
+- **The app** still works out the picture-by-picture MaxN figures (an optional extra, not the headline),
+  compares blind QC counts, and builds the Excel/PDF exports.
 - **QC rules** (sample %, allowed difference, agreement target) are settings in the app, saved on the computer.

@@ -214,7 +214,7 @@ export function UploadView({
                 </select>
               </Field>
               <Field
-                label={`Count a fish automatically when FinCount is at least ${Math.round(form.threshold * 100)}% sure`}
+                label={`Count a fish automatically when TIDE is at least ${Math.round(form.threshold * 100)}% sure`}
                 hint="Anything less certain is set aside for you to check."
               >
                 <input

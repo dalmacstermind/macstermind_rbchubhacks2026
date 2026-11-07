@@ -1,4 +1,4 @@
-// Blind quality check: a second person recounts a random sample of pictures with FinCount's
+// Blind quality check: a second person recounts a random sample of pictures with TIDE's
 // boxes and counts hidden, then sees how far apart the two counts are.
 import { useCallback, useEffect, useState } from "react";
 import type { Person, QcData, SurveyData } from "../../../shared/api";
@@ -42,7 +42,7 @@ export function QcView({
       <Header eyebrow="Tools" title="Blind quality check" />
       <div className="max-w-4xl space-y-4 px-10 py-8">
         <p className="text-sm text-muted-foreground">
-          A second person recounts {prefs.qcPercent}% of each survey's pictures without seeing FinCount's boxes or
+          A second person recounts {prefs.qcPercent}% of each survey's pictures without seeing TIDE's boxes or
           counts. Counts more than {prefs.qcMaxDiff}% apart are flagged for a recount. The goal is {prefs.qcTarget}%
           agreement.
         </p>
@@ -229,7 +229,7 @@ function QcCounting({
                   />
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
-                  <span className="text-xs">FinCount's boxes and counts are hidden.</span>
+                  <span className="text-xs">TIDE's boxes and counts are hidden.</span>
                   <label className="flex items-center gap-2">
                     Brightness
                     <input
@@ -345,7 +345,7 @@ function QcResult({
       <dl className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-sm">
         <dt />
         <dd className="text-xs text-muted-foreground">You</dd>
-        <dd className="text-xs text-muted-foreground">FinCount</dd>
+        <dd className="text-xs text-muted-foreground">TIDE</dd>
         <dt>Fish</dt>
         <dd className="text-right font-semibold">{result.you.fish}</dd>
         <dd className="text-right">{result.app.fish}</dd>

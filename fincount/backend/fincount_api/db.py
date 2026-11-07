@@ -7,10 +7,13 @@ import threading
 import time
 from pathlib import Path
 
+import numpy as np
+
 from aquavision.protocol import WindowProposal
 
-from .schemas import (Box, Detection, Person, QcCount, QcCountIn, Species, SpeciesIn, SpeciesPatch, SurveyInfo,
-                      Video)
+from .db_protocol import PROTOCOL_MIGRATIONS, PROTOCOL_SCHEMA, ProtocolStore
+from .schemas import (Box, Detection, Person, QcCount, QcCountIn, Reference, Species, SpeciesIn, SpeciesPatch,
+                      Suggestion, SurveyInfo, Video)
 
 # (id, common, scientific, status, habitat, kind). The real list comes from Coastal Action.
 DEFAULT_SPECIES = [
@@ -23,7 +26,7 @@ DEFAULT_SPECIES = [
     ("pickerel", "Chain pickerel", "Esox niger", "invasive", "Freshwater", "fish"),
     ("triggerfish", "Grey triggerfish", "Balistes capriscus", "unusual", "Marine", "fish"),
     ("green_crab", "European green crab", "Carcinus maenas", "invasive", "Marine", "invertebrate"),
-    ("unknown", "Unidentified fish", "—", "native", "—", "fish"),
+    ("unknown", "Unknown/Unable to ID due to visibility", "—", "native", "—", "fish"),
 ]
 
 SCHEMA = """
@@ -62,6 +65,16 @@ CREATE TABLE IF NOT EXISTS qc_counts (
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   PRIMARY KEY (frame_id, person)
 );
+CREATE TABLE IF NOT EXISTS species_references (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, species_id TEXT NOT NULL, image_path TEXT NOT NULL,
+  embedding BLOB NOT NULL, model TEXT NOT NULL, source TEXT NOT NULL DEFAULT '',
+  added_by TEXT NOT NULL DEFAULT '', added_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS track_vectors (
+  survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+  track_id TEXT NOT NULL, vectors BLOB NOT NULL, dim INTEGER NOT NULL, crop_path TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (survey_id, track_id)
+);
 CREATE TABLE IF NOT EXISTS videos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
@@ -84,6 +97,12 @@ MIGRATIONS = [
     ("surveys", "created_by", "TEXT NOT NULL DEFAULT ''"),
     ("frames", "clarity", "REAL"),
     ("detections", "edited_by", "TEXT NOT NULL DEFAULT ''"),
+    # Real pipeline (aquavision): which tracked fish a box belongs to, and the AI's species result.
+    ("detections", "track_id", "TEXT NOT NULL DEFAULT ''"),
+    ("detections", "ai_label", "TEXT NOT NULL DEFAULT ''"),
+    ("detections", "top_k", "TEXT NOT NULL DEFAULT '[]'"),
+    ("detections", "novelty", "REAL"),
+    ("detections", "unknown_reason", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -91,7 +110,7 @@ def _norm(name: str) -> str:
     return re.sub(r"\s+", "", name).lower()
 
 
-class Database:
+class Database(ProtocolStore):
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
@@ -99,12 +118,15 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.lock = threading.Lock()  # the analysis runs in a background thread
         with self.lock:
-            self.conn.executescript(SCHEMA)
-            for table, column, decl in MIGRATIONS:
+            self.conn.executescript(SCHEMA + PROTOCOL_SCHEMA)
+            for table, column, decl in MIGRATIONS + PROTOCOL_MIGRATIONS:
                 cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
                 if column not in cols:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
             self.conn.commit()
+        # CLAUDE.md: "Unidentified fish" is called "Unknown/Unable to ID due to visibility" (older databases).
+        self.run("UPDATE species SET common = ? WHERE id = 'unknown' AND common = 'Unidentified fish'",
+                 DEFAULT_SPECIES[-1][1])
         if self.one("SELECT COUNT(*) AS n FROM species")["n"] == 0:
             self.reset_species()
         elif not self.one("SELECT 1 FROM species WHERE id = 'green_crab'"):
@@ -143,11 +165,12 @@ class Database:
     # ── Species ──
 
     def list_species(self) -> list[Species]:
-        rows = self.all("SELECT * FROM species ORDER BY kind = 'invertebrate', sort, common")
+        rows = self.all("SELECT s.*, (SELECT COUNT(*) FROM species_references r WHERE r.species_id = s.id) AS refs "
+                        "FROM species s ORDER BY kind = 'invertebrate', sort, common")
         return [
             Species(id=r["id"], common=r["common"], scientific=r["scientific"], status=r["status"],
                     habitat=r["habitat"], kind=r["kind"], custom=bool(r["custom"]), added_by=r["added_by"],
-                    added_at=r["added_at"])
+                    added_at=r["added_at"], reference_count=r["refs"])
             for r in rows
         ]
 
@@ -170,8 +193,15 @@ class Database:
                  nxt.common, nxt.scientific, nxt.status, nxt.habitat, nxt.kind, species_id)
         return True
 
-    def remove_species(self, species_id: str):
+    def remove_species(self, species_id: str) -> list[Path]:
+        """Removes a staff-added species and its reference pictures; returns the picture files to delete."""
+        if not self.one("SELECT 1 FROM species WHERE id = ? AND custom = 1", species_id):
+            return []
+        paths = [Path(r["image_path"]) for r in self.all(
+            "SELECT image_path FROM species_references WHERE species_id = ?", species_id)]
+        self.run("DELETE FROM species_references WHERE species_id = ?", species_id)
         self.run("DELETE FROM species WHERE id = ? AND custom = 1", species_id)
+        return paths
 
     def reset_species(self):
         with self.lock, self.conn:
@@ -224,7 +254,9 @@ class Database:
             by_frame.setdefault(d["frame_id"], []).append(Detection(
                 id=str(d["id"]), species_id=d["species_id"], model_species_id=d["model_species_id"],
                 confidence=d["confidence"], verified=bool(d["verified"]), edited_by=d["edited_by"],
-                box=Box(x=d["x"], y=d["y"], w=d["w"], h=d["h"])))
+                box=Box(x=d["x"], y=d["y"], w=d["w"], h=d["h"]), track_id=d["track_id"], ai_label=d["ai_label"],
+                suggestions=[Suggestion(species_id=k, score=v) for k, v in json.loads(d["top_k"] or "[]")],
+                novelty=d["novelty"], unknown_reason=d["unknown_reason"]))
         return self._info(r), [(f, by_frame.get(f["id"], [])) for f in frames]
 
     def delete_survey(self, survey_id: int):
@@ -233,16 +265,28 @@ class Database:
     # ── Frames & detections ──
 
     def add_frame(self, survey_id: int, source: str, timestamp: str, image_path: str,
-                  detections: list[tuple[str, float, Box]], clarity: float | None = None):
-        """detections: (species_id, confidence, box) as the model produced them."""
+                  detections: list[tuple], clarity: float | None = None, *, video_id: int | None = None,
+                  point_no: int | None = None, t_s: float | None = None, role: str = "sample") -> int:
+        """detections: (species_id, confidence, box) as the model produced them, optionally followed by a
+        dict with the real pipeline's extras: track_id, ai_label, top_k [(species_id, score)], novelty,
+        unknown_reason."""
+        rows = []
+        for d in detections:
+            sp, conf, b = d[0], d[1], d[2]
+            x = d[3] if len(d) > 3 else {}
+            rows.append((sp, sp, conf, b.x, b.y, b.w, b.h, x.get("track_id", ""), x.get("ai_label", ""),
+                         json.dumps(x.get("top_k", [])), x.get("novelty"), x.get("unknown_reason", "")))
         with self.lock, self.conn:
             frame_id = self.conn.execute(
-                "INSERT INTO frames (survey_id, source, timestamp, image_path, clarity) VALUES (?, ?, ?, ?, ?)",
-                (survey_id, source, timestamp, image_path, clarity)).lastrowid
+                "INSERT INTO frames (survey_id, source, timestamp, image_path, clarity, video_id, point_no, t_s, role) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (survey_id, source, timestamp, image_path, None if clarity is None else float(clarity), video_id,
+                 point_no, t_s, role)).lastrowid
             self.conn.executemany(
-                "INSERT INTO detections (frame_id, species_id, model_species_id, confidence, x, y, w, h) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [(frame_id, sp, sp, conf, b.x, b.y, b.w, b.h) for sp, conf, b in detections])
+                "INSERT INTO detections (frame_id, species_id, model_species_id, confidence, x, y, w, h, "
+                "track_id, ai_label, top_k, novelty, unknown_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(frame_id, *r) for r in rows])
+        return frame_id
 
     # ── Videos & analysis windows ──
 
@@ -318,3 +362,61 @@ class Database:
                  "invertebrates = excluded.invertebrates, created_at = datetime('now','localtime')",
                  int(c.frame_id), c.person, c.fish, c.invertebrates)
         return True
+
+    def detection_crop_source(self, detection_id: int):
+        """(picture path, box in %) of one detection, for "use as reference picture"."""
+        r = self.one("SELECT f.image_path, d.x, d.y, d.w, d.h FROM detections d JOIN frames f ON f.id = d.frame_id "
+                     "WHERE d.id = ?", detection_id)
+        return (Path(r["image_path"]), Box(x=r["x"], y=r["y"], w=r["w"], h=r["h"])) if r else None
+
+    # ── Species reference pictures (BioCLIP 2 embeddings, used to identify species) ──
+
+    def add_reference(self, species_id: str, image_path: Path, vector: np.ndarray, model: str, source: str,
+                      by: str) -> int:
+        return self.run("INSERT INTO species_references (species_id, image_path, embedding, model, source, added_by) "
+                        "VALUES (?, ?, ?, ?, ?, ?)", species_id, str(image_path),
+                        np.asarray(vector, np.float32).tobytes(), model, source, by)
+
+    def list_references(self, species_id: str) -> list[Reference]:
+        return [Reference(id=str(r["id"]), species_id=r["species_id"], image=f"/references/{r['id']}/image",
+                          source=r["source"], added_by=r["added_by"], added_at=r["added_at"])
+                for r in self.all("SELECT * FROM species_references WHERE species_id = ? ORDER BY id", species_id)]
+
+    def reference_image(self, ref_id: int) -> Path | None:
+        r = self.one("SELECT image_path FROM species_references WHERE id = ?", ref_id)
+        return Path(r["image_path"]) if r else None
+
+    def remove_reference(self, ref_id: int) -> Path | None:
+        path = self.reference_image(ref_id)
+        self.run("DELETE FROM species_references WHERE id = ?", ref_id)
+        return path
+
+    def reference_vectors(self, model: str) -> list[tuple[str, np.ndarray]]:
+        """All reference embeddings made with `model`, for species that are still in the list."""
+        return [(r["species_id"], np.frombuffer(r["embedding"], dtype=np.float32))
+                for r in self.all("SELECT r.species_id, r.embedding FROM species_references r "
+                                  "JOIN species s ON s.id = r.species_id WHERE r.model = ?", model)]
+
+    # ── Track embeddings (kept so species can be re-identified after references change) ──
+
+    def save_track_vectors(self, survey_id: int, track_id: str, vectors: np.ndarray, crop_path: str = ""):
+        v = np.asarray(vectors, np.float32)
+        self.run("INSERT OR REPLACE INTO track_vectors (survey_id, track_id, vectors, dim, crop_path) "
+                 "VALUES (?, ?, ?, ?, ?)", survey_id, track_id, v.tobytes(), int(v.shape[1]), crop_path)
+
+    def track_vectors(self, survey_id: int) -> dict[str, np.ndarray]:
+        return {r["track_id"]: np.frombuffer(r["vectors"], dtype=np.float32).reshape(-1, r["dim"])
+                for r in self.all("SELECT * FROM track_vectors WHERE survey_id = ?", survey_id)}
+
+    def set_track_species(self, survey_id: int, track_id: str, species_id: str, ai_label: str,
+                          top_k: list[tuple[str, float]], novelty: float | None, reason: str) -> int:
+        """New AI result for every detection of one track. Detections staff already checked keep their
+        species; the AI result is stored next to them either way."""
+        ids = ("SELECT d.id FROM detections d JOIN frames f ON f.id = d.frame_id "
+               "WHERE f.survey_id = ? AND d.track_id = ?")
+        with self.lock, self.conn:
+            self.conn.execute(f"UPDATE detections SET model_species_id = ?, ai_label = ?, top_k = ?, novelty = ?, "
+                              f"unknown_reason = ? WHERE id IN ({ids})",
+                              (species_id, ai_label, json.dumps(top_k), novelty, reason, survey_id, track_id))
+            return self.conn.execute(f"UPDATE detections SET species_id = ? WHERE verified = 0 AND species_id != ? "
+                                     f"AND id IN ({ids})", (species_id, species_id, survey_id, track_id)).rowcount

@@ -8,6 +8,8 @@ const desktop: DesktopApi = {
   onBackendCrashed: (cb) => ipcRenderer.on("backend:crashed", (_e, msg: string) => cb(msg)),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   pickFolder: () => ipcRenderer.invoke("files:pickFolder"),
+  pickImages: () => ipcRenderer.invoke("files:pickImages"),
+  pickCsv: () => ipcRenderer.invoke("files:pickCsv"),
   pathsOf: (files) => files.map((f) => webUtils.getPathForFile(f)).filter(Boolean),
   expand: (paths) => ipcRenderer.invoke("files:expand", paths),
   saveXlsx: (name, data) => ipcRenderer.invoke("export:xlsx", name, data),

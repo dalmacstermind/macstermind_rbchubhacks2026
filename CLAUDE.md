@@ -125,8 +125,12 @@ fincount/
       ui.tsx                     shared UI pieces (Chip, Modal, Field, buttons…)
       components/                VideoPlayer, PointTimeline, PointPanel, UnknownGallery,
                                  LabelCanvas, LabelPicker, NewSpeciesForm, TrendsChart…
+                                 (today: SuggestionButtons, ReferencePictures, UseAsReference, MatchAgainButton,
+                                 ProtocolResults, VideoResultCard, PointTable, PointEditor, ImageResultsTable,
+                                 EvaluationPanel, UnknownGallery, LabelPicker, LabelCanvas)
       views/                     Upload, Processing, Results, ImageResults, Label, QC,
                                  Trends, Species, Settings, People
+                                 (today: Report shows the protocol results; Label is the Label page)
     test/                        Vitest
   backend/
     fincount_api/                main.py (routes), schemas.py, db.py, jobs (pipeline.py today)
@@ -137,14 +141,20 @@ fincount/
       frames.py                  read frames from local video (OpenCV) for a time range
       clips.py                   save each point's context clip (FFmpeg, OpenCV fallback)
       protocol.py                analysis window, subsample timestamps, context ranges
-      detect.py                  fish + invertebrate detector (YOLOX; Grounding DINO fallback)
+      detect.py                  fish + invertebrate detector (interim: Community Fish Detector RF-DETR;
+                                 target: YOLOX; Grounding DINO fallback)
       species.py                 BioCLIP on crops, registry matching, novelty distance
       track.py                   ByteTrack wrapper
+      analyse.py                 one file: window → points (context clips, tracking) → richness scan → species
+      results.py                 survey results from stored rows: points, MeanCount, richness, image counts
+      device.py                  GPU/CPU choice at start-up; one lock for all GPU work
+      fetch_models.py            developer tool: put pinned, checksummed weights into models/ (never at runtime)
       count.py                   tolerance-window counting, MeanCount, richness, image counts
       clarity.py                 clarity index per frame/point/video; suggested visibility; pole bands (P2)
       trends.py                  per-video summaries for the Trends page
       labels.py                  apply/undo labels on tracks, recalculate counts, reference images
       qc.py                      blind QC sampling and agreement stats
+      evaluate.py                AI vs hand counts, protocol-style (per-point % diff, share within 6%, MeanCount)
       export.py                  rows for the Coastal Action spreadsheet (written by ExcelJS in the app)
       benchmark.py               timing, VRAM, RAM, frames/s
     config/protocol.yaml         protocol parameters (defaults)

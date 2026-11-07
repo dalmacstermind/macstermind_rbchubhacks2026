@@ -53,7 +53,7 @@ export function WhoIsWorking({ onPick }: { onPick: (p: Person) => void }) {
     <div className="grid h-screen place-items-center overflow-auto bg-background px-6 text-foreground">
       <div className="w-full max-w-2xl py-10 text-center">
         <div className="mx-auto mb-6 grid h-14 w-14 place-items-center rounded-xl bg-gradient-ocean font-display text-2xl font-bold text-primary-foreground">
-          F
+          T
         </div>
         <h1 className="font-display text-3xl font-semibold">Who's working today?</h1>
         <p className="mt-2 text-sm text-muted-foreground">

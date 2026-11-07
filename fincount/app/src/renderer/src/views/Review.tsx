@@ -1,4 +1,4 @@
-// "Check the fish": confirm, correct or reject what FinCount found, one picture at a time.
+// "Check the fish": confirm, correct or reject what TIDE found, one picture at a time.
 import { useEffect, useMemo, useState } from "react";
 import type { Person } from "../../../shared/api";
 import {
@@ -11,6 +11,8 @@ import {
   type SpeciesStatus,
 } from "../../../shared/survey";
 import { api } from "../api";
+import { SuggestionButtons } from "../components/SuggestionButtons";
+import { UseAsReference } from "../components/UseAsReference";
 import type { ReviewMode } from "./Report";
 import { useKeys } from "../shortcuts";
 import { Certainty, Chip, Field, Header, Kbd, Modal, StatusPill, btnGhost, btnLink, btnPrimary, plural } from "../ui";
@@ -19,7 +21,7 @@ type Patch = Pick<Detection, "speciesId" | "verified">;
 
 const MODES: Record<ReviewMode, string> = {
   review: "Needs checking",
-  label: "Unidentified fish",
+  label: "Unknown/Unable to ID due to visibility",
   all: "All pictures with fish",
 };
 
@@ -330,7 +332,7 @@ export function ReviewView({
                       : `Is this ${/^[aeiou]/i.test(name(det.speciesId)) ? "an" : "a"} ${name(det.speciesId)}?`}
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  FinCount guessed <b className="text-foreground">{name(det.modelSpeciesId)}</b> and was{" "}
+                  TIDE guessed <b className="text-foreground">{name(det.modelSpeciesId)}</b> and was{" "}
                   <Certainty value={det.confidence} />.
                 </p>
                 {det.verified && det.editedBy && (
@@ -338,6 +340,11 @@ export function ReviewView({
                     <Chip tone="done">Checked by {det.editedBy}</Chip>
                   </p>
                 )}
+                <SuggestionButtons
+                  det={det}
+                  species={species}
+                  onPick={(id) => apply({ speciesId: id, verified: true })}
+                />
                 {det.speciesId !== NOT_FISH && !det.verified && (
                   <button
                     onClick={() => apply({ speciesId: det.speciesId, verified: true })}
@@ -375,6 +382,12 @@ export function ReviewView({
                 >
                   Not a fish (seaweed, sediment, debris) <Kbd>N</Kbd>
                 </button>
+                <UseAsReference
+                  det={det}
+                  species={species}
+                  person={person}
+                  onAdded={() => void api.species.list().then(setSpecies)}
+                />
                 <div className="mt-3 flex items-center justify-between text-xs">
                   <button onClick={() => setAdding(true)} className={btnLink}>
                     + Species not listed

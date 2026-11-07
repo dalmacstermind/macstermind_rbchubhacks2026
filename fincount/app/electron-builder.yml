@@ -1,6 +1,6 @@
 # Builds the Windows installer. Build the back end first (see ../README.md), then: npm run dist:win
 appId: org.fincount.app
-productName: FinCount
+productName: TIDE
 directories:
   output: release
   buildResources: build
@@ -20,6 +20,6 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
-  shortcutName: FinCount
-  artifactName: FinCount-Setup-${version}.exe
+  shortcutName: TIDE
+  artifactName: TIDE-Setup-${version}.exe
 publish: null

@@ -1,6 +1,6 @@
 # Builds the Windows installer on GitHub's Windows machines, so you can develop on a Mac.
 # Push to GitHub → Actions tab → "Build Windows installer" → Run workflow,
-# then download FinCount-Setup-x.y.z.exe from the finished run's "Artifacts".
+# then download TIDE-Setup-x.y.z.exe from the finished run's "Artifacts".
 name: Build Windows installer
 on:
   workflow_dispatch:
@@ -40,5 +40,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FinCount-Windows-installer
+          name: TIDE-Windows-installer
           path: app/release/*.exe

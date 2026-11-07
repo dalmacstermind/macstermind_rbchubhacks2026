@@ -20,6 +20,8 @@ export type Species = {
   custom?: boolean;
   addedBy?: string;
   addedAt?: string;
+  /** Reference pictures the species model compares fish with (0 = it can't suggest this species). */
+  referenceCount?: number;
 };
 
 export const DEFAULT_SPECIES: Species[] = [
@@ -87,7 +89,7 @@ export const DEFAULT_SPECIES: Species[] = [
     habitat: "Marine",
     kind: "invertebrate",
   },
-  { id: "unknown", common: "Unidentified fish", scientific: "—", status: "native", habitat: "—" },
+  { id: "unknown", common: "Unknown/Unable to ID due to visibility", scientific: "—", status: "native", habitat: "—" },
 ];
 
 export const UNKNOWN = "unknown";
@@ -107,6 +109,16 @@ export type Detection = {
   verified: boolean; // a person confirmed or corrected it
   editedBy?: string; // who confirmed or corrected it
   box: { x: number; y: number; w: number; h: number }; // percentages of the frame
+  /** Filled by the real pipeline (empty in demo mode). The same fish in several pictures shares a trackId. */
+  trackId?: string;
+  /** What the species model said: a species id, "Unknown" or "Potential Novel Sighting". */
+  aiLabel?: string;
+  /** The species model's top guesses, best first. Score is similarity 0–1, not a probability. */
+  suggestions?: Suggestion[];
+  /** 0–1 distance to the nearest species with reference pictures. */
+  novelty?: number | null;
+  /** Why the AI couldn't name the species, in plain English. */
+  unknownReason?: string;
 };
 
 export type Frame = {
@@ -194,7 +206,7 @@ export function summarize(frames: Frame[], species: Species[], threshold: number
     sightings: counted.filter((d) => byId.get(d.speciesId)?.kind !== "invertebrate").length,
     rows: [...fishRows, ...rows.filter(isInvert)],
     speciesCount: fishRows.filter((r) => r.sp.id !== UNKNOWN).length,
-    /** Fish still named "Unidentified fish" that nobody has looked at yet. */
+    /** Fish still named "Unknown/Unable to ID due to visibility" that nobody has looked at yet. */
     toLabel: all.filter((d) => d.speciesId === UNKNOWN && !d.verified && isCounted(d, threshold)).length,
     clarity: clarities.length ? clarities.reduce((a, c) => a + c, 0) / clarities.length : null,
     checkedBy: [...new Set(all.map((d) => d.editedBy).filter((x): x is string => !!x))],
@@ -243,8 +255,13 @@ export function openItems(
   return items;
 }
 
-/** Percent difference used by blind QC: |yours − FinCount's| / FinCount's (0 vs 0 = 0%). */
+/** Percent difference used by blind QC: |yours − TIDE's| / TIDE's (0 vs 0 = 0%). */
 export function qcDifference(yours: number, app: number) {
   if (yours === app) return 0;
   return (Math.abs(yours - app) / Math.max(app, 1)) * 100;
 }
+
+export type Suggestion = { speciesId: string; score: number };
+
+/** The species model's label for a fish far from every species in the list (for expert review). */
+export const NOVEL_SIGHTING = "Potential Novel Sighting";

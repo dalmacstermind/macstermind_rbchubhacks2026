@@ -10,6 +10,8 @@ import {
   type Summary,
 } from "../../../shared/survey";
 import { api } from "../api";
+import { MatchAgainButton } from "../components/MatchAgainButton";
+import { ProtocolResults } from "../components/ProtocolResults";
 import { buildWorkbook } from "../exportXlsx";
 import type { QcState } from "../overview";
 import {
@@ -56,7 +58,7 @@ export function ReportView({
   const fishRows = s.rows.filter((r) => r.sp.kind !== "invertebrate");
   const invRows = s.rows.filter((r) => r.sp.kind === "invertebrate");
   const max = Math.max(1, ...s.rows.map((r) => r.maxN));
-  const fileName = `FinCount - ${survey.site.replace(/[\\/:*?"<>|]/g, "-")}${open.length ? " (draft)" : ""}`;
+  const fileName = `TIDE - ${survey.site.replace(/[\\/:*?"<>|]/g, "-")}${open.length ? " (draft)" : ""}`;
   const names = (status: SpeciesStatus) =>
     s.rows
       .filter((r) => r.sp.status === status)
@@ -65,9 +67,12 @@ export function ReportView({
 
   const exportXlsx = async () => {
     setChecking(false);
-    // The Videos sheet needs each video's analysis window, which isn't part of the survey data.
-    const videos = await api.surveys.videos(survey.id);
-    const buf = await buildWorkbook({ data, summary: s, species, open, videos, person: person.name });
+    // The Videos sheet needs each video's analysis window; the Points and Images sheets need the results.
+    const [videos, results] = await Promise.all([
+      api.surveys.videos(survey.id),
+      api.surveys.results(survey.id).catch(() => null),
+    ]);
+    const buf = await buildWorkbook({ data, summary: s, species, open, videos, person: person.name, results });
     const path = await window.desktop.saveXlsx(fileName, buf);
     if (path) setSaved(path);
   };
@@ -93,6 +98,7 @@ export function ReportView({
       )}
       {editing && <EditSurvey data={data} onClose={() => setEditing(false)} onSaved={onChanged} />}
       <Header eyebrow={`Step 3 of 4 · ${survey.site}`} title="Survey report">
+        <MatchAgainButton surveyId={survey.id} onDone={onChanged} />
         <button onClick={() => onReview("all")} className={btnGhost}>
           Check the fish
         </button>
@@ -125,7 +131,7 @@ export function ReportView({
               </button>
             }
           >
-            FinCount wasn't sure enough to count {s.toReview === 1 ? "it, so it's" : "these, so they're"}{" "}
+            TIDE wasn't sure enough to count {s.toReview === 1 ? "it, so it's" : "these, so they're"}{" "}
             <b>not included</b> in the numbers below until you confirm {s.toReview === 1 ? "it" : "them"}.
           </Alert>
         )}
@@ -140,6 +146,19 @@ export function ReportView({
           </Alert>
         )}
 
+        <ProtocolResults
+          surveyId={survey.id}
+          species={species}
+          person={person}
+          version={frames.reduce((n, f) => n + f.detections.filter((d) => d.verified).length, frames.length)}
+        />
+
+        <div>
+          <h2 className="font-display text-xl font-semibold">Picture-by-picture counts</h2>
+          <p className="text-sm text-muted-foreground">
+            The most fish of each species seen in one picture (MaxN). An optional extra: the protocol figures are above.
+          </p>
+        </div>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <Stat label="Fish counted" value={s.total} sub={`${s.sightings} sightings in total`} />
           <Stat
@@ -230,7 +249,7 @@ export function ReportView({
 
         <Disclosure label="How fish are counted">
           <div className="rounded-xl bg-secondary/50 px-5 py-4 text-sm text-muted-foreground">
-            The same fish often shows up in many pictures as it swims past. To avoid counting it twice, FinCount uses
+            The same fish often shows up in many pictures as it swims past. To avoid counting it twice, TIDE uses
             the <b className="text-foreground">most fish of each species seen in a single picture</b> (known as MaxN,
             the standard count for video surveys). “Sightings” is every time it was spotted. Invertebrates such as crabs
             are counted separately from fish.
