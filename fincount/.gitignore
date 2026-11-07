@@ -1,0 +1,14 @@
+# App
+app/node_modules/
+app/out/
+app/release/
+# Back end
+backend/.venv/
+backend/build/
+backend/dist/
+backend/data/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Model files are large: share them separately or with Git LFS
+*.onnx

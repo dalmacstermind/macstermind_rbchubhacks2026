@@ -1,0 +1,25 @@
+# Builds the Windows installer. Build the back end first (see ../README.md), then: npm run dist:win
+appId: org.fincount.app
+productName: FinCount
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  # The packaged FastAPI back end (made by PyInstaller in ../backend/dist/fincount-api)
+  - from: ../backend/dist/fincount-api
+    to: backend
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  shortcutName: FinCount
+  artifactName: FinCount-Setup-${version}.exe
+publish: null
