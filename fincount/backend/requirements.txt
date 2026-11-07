@@ -1,7 +1,7 @@
 # What the packaged back end needs at runtime
 fastapi>=0.115
 uvicorn>=0.30
-# Add for the real pipeline (integration team):
-# onnxruntime>=1.20        # runs fish.onnx, CPU; use onnxruntime-directml for GPU on Windows
-# opencv-python-headless   # video → pictures, image clean-up
-# numpy
+# TIDE pipeline (aquavision/). Pinned to exact versions (CLAUDE.md, Packaging).
+opencv-python-headless==5.0.0.93   # read video frames, write fallback clips (Apache 2.0)
+numpy==2.2.6                       # (BSD-3-Clause)
+PyYAML==6.0.3                      # config/*.yaml (MIT)
