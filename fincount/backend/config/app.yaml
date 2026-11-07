@@ -1,0 +1,16 @@
+# TIDE app settings (not protocol rules; those are in protocol.yaml).
+
+frames:
+  # Seeking in long camera videos can land a few frames off. We seek this many seconds before the
+  # start of each range, then read frames in order and use the decoder's timestamps.
+  seek_preroll_s: 1.0
+
+clips:
+  # Bundled FFmpeg binary, relative to this config folder (or an absolute path).
+  # null = no FFmpeg: clips are written with OpenCV instead (they may not play in the app).
+  ffmpeg_path: null
+  # libx264 makes clips that play in the app's video player (H.264). Needs a GPL FFmpeg build;
+  # see docs/LICENCES.md.
+  ffmpeg_codec: libx264
+  # Codec for the OpenCV fallback. mp4v always works but Chromium can't play it.
+  opencv_fourcc: mp4v
