@@ -155,12 +155,18 @@ def test_upgrades_an_old_database(tmp_path):
       CREATE TABLE detections (id INTEGER PRIMARY KEY AUTOINCREMENT, frame_id INTEGER NOT NULL,
         species_id TEXT NOT NULL, model_species_id TEXT NOT NULL, confidence REAL NOT NULL,
         verified INTEGER NOT NULL DEFAULT 0, x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL);
+      CREATE TABLE surveys (id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL, environment TEXT NOT NULL,
+        threshold REAL NOT NULL, files TEXT NOT NULL, status TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')));
     """)
     con.commit()
     con.close()
     db = Database(old)
     ids = [s.id for s in db.list_species()]
     assert "cod" in ids and "green_crab" in ids
+    # "Type of water" was removed: the old NOT NULL column is dropped so new surveys can be saved.
+    sid = db.create_survey("T1", 0.5, ["a.mp4"])
+    assert db.one("SELECT site FROM surveys WHERE id = ?", sid)["site"] == "T1"
 
 
 def test_fix_survey_date(client):

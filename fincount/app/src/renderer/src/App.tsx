@@ -7,7 +7,7 @@ import { qcState, useOverview } from "./overview";
 import { usePrefs } from "./prefs";
 import { ShortcutsSheet, useKeys } from "./shortcuts";
 import { useTheme } from "./theme";
-import { Alert, btnGhost, initials, plural } from "./ui";
+import { Alert, Kbd, btnGhost, initials, plural } from "./ui";
 import { WhoIsWorking } from "./views/People";
 import { ProcessingView } from "./views/Processing";
 import { QcView } from "./views/QC";
@@ -30,7 +30,6 @@ export default function App() {
   const [form, setForm] = useState<SurveyForm>(() => ({
     site: "",
     surveyDate: "",
-    environment: "Coastal marine",
     threshold: prefs.threshold,
     sampling: prefs.sampling,
     enhance: prefs.enhance,
@@ -66,6 +65,19 @@ export default function App() {
     setPage(p);
   };
 
+  // Start fresh, like when the app first opens: close the current survey so steps 2–5 are greyed out
+  // again, and clear the form. The closed survey stays saved and can be reopened from "Your surveys".
+  const newSurvey = () => {
+    setData(null);
+    setQcRaw(null);
+    setFinished(null);
+    setReviewMode("all");
+    setError(null);
+    setFiles([]);
+    setForm({ ...form, site: "", surveyDate: "" });
+    go("upload");
+  };
+
   const openSurvey = useCallback(async (id: number, target: OpenTarget = "report") => {
     const [d, q] = await Promise.all([api.surveys.get(id), api.qc.get(id)]);
     setData(d);
@@ -80,7 +92,6 @@ export default function App() {
       setPage("review");
     }
   }, []);
-
   const start = async () => {
     if (!person) return;
     setError(null);
@@ -203,6 +214,7 @@ export default function App() {
                 setPage("qc");
               }}
               onChanged={() => void openSurvey(data.survey.id)}
+              onNewSurvey={newSurvey}
             />
           </>
         )}
@@ -356,6 +368,13 @@ function Sidebar({
             {model.speciesModel ? ` · ${model.references ?? 0} reference pictures` : " · species model not installed"}
           </p>
         )}
+        <button onClick={onShortcuts} className={navBtn(false)} title="Show keyboard shortcuts (press ? anywhere)">
+          <span className="grid h-5 w-5 place-items-center text-sidebar-primary" aria-hidden>
+            ⌨
+          </span>
+          <span className="flex-1">Keyboard shortcuts</span>
+          <Kbd>?</Kbd>
+        </button>
         <div
           className="flex rounded-lg border border-sidebar-border p-0.5 text-xs"
           role="radiogroup"
@@ -377,7 +396,7 @@ function Sidebar({
             </button>
           ))}
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={switchPerson}
             disabled={busy}
@@ -391,13 +410,6 @@ function Sidebar({
               <span className="block truncate font-medium">{person.name}</span>
               <span className="block text-[11px] text-sidebar-foreground/60">Switch person</span>
             </span>
-          </button>
-          <button
-            onClick={onShortcuts}
-            className="rounded-md border border-sidebar-border px-2 py-1 text-xs text-sidebar-foreground/70 outline-none hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            title="Keyboard shortcuts (?)"
-          >
-            ? Keys
           </button>
         </div>
         <div className="flex items-center gap-2 px-1 text-xs text-sidebar-foreground/60">

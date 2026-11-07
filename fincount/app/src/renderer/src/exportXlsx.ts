@@ -168,7 +168,6 @@ export async function buildWorkbook(opts: {
     ["Status", draft ? "DRAFT — exported with open items (listed below)" : "Final — nothing left to check"],
     ["Site", survey.site],
     ["Date filmed", survey.surveyDate || "Not recorded"],
-    ["Type of water", survey.environment],
     ["Footage", survey.files.join("; ")],
     ["Analysed", `${survey.createdAt}${survey.createdBy ? ` by ${survey.createdBy}` : ""}`],
     ["Checked by", s.checkedBy.join(", ") || "Nobody yet (AI only)"],

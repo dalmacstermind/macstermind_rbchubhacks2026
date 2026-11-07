@@ -1,5 +1,5 @@
 // Loads every finished survey with its summary and blind-QC progress.
-// Used by the home screen ("Pick up where you left off") and Trends.
+// Used by the home screen ("Your surveys") and Trends.
 import { useCallback, useEffect, useState } from "react";
 import type { QcData, SurveyData } from "../../shared/api";
 import {

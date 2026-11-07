@@ -309,8 +309,8 @@ class Jobs:
             if missing:
                 raise FileNotFoundError(f"Can't find: {', '.join(missing)}")
             names = [Path(f).name for f in req.files]
-            survey_id = self.db.create_survey(req.site.strip() or "Untitled survey", req.environment,
-                                              req.threshold, names, req.survey_date, req.person)
+            survey_id = self.db.create_survey(req.site.strip() or "Untitled survey", req.threshold, names,
+                                              req.survey_date, req.person)
             self.db.set_survey_protocol(survey_id, self.protocol)  # the values this survey is processed with
             files = [FileStatus(name=n, state="waiting") if Path(f).suffix.lower() in IMAGE_EXT | VIDEO_EXT
                      else FileStatus(name=n, state="skipped", detail="Not a video or photo")

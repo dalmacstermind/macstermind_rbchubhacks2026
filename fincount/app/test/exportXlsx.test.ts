@@ -82,7 +82,6 @@ describe("Videos sheet", () => {
       survey: {
         id: 1,
         site: "Mahone Bay",
-        environment: "Coastal marine",
         threshold: 0.5,
         createdAt: "2026-11-07",
         surveyDate: "2025-08-20",

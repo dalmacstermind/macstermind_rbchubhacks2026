@@ -10,8 +10,10 @@ import {
   type Summary,
 } from "../../../shared/survey";
 import { api } from "../api";
+import { ExportMenu } from "../components/ExportMenu";
 import { MatchAgainButton } from "../components/MatchAgainButton";
 import { ProtocolResults } from "../components/ProtocolResults";
+import { SurveyDoneCard } from "../components/SurveyDoneCard";
 import { buildWorkbook } from "../exportXlsx";
 import type { QcState } from "../overview";
 import {
@@ -40,6 +42,7 @@ export function ReportView({
   onReview,
   onQc,
   onChanged,
+  onNewSurvey,
 }: {
   data: SurveyData;
   summary: Summary;
@@ -49,6 +52,7 @@ export function ReportView({
   onReview: (mode: ReviewMode) => void;
   onQc: () => void;
   onChanged: () => void;
+  onNewSurvey: () => void;
 }) {
   const { survey, frames } = data;
   const [saved, setSaved] = useState<string | null>(null);
@@ -102,12 +106,13 @@ export function ReportView({
         <button onClick={() => onReview("all")} className={btnGhost}>
           Check the fish
         </button>
-        <button onClick={exportPdf} className={btnGhost}>
-          Save as PDF
+        <button onClick={onNewSurvey} className={btnGhost}>
+          + New survey
         </button>
-        <button onClick={() => (open.length ? setChecking(true) : void exportXlsx())} className={btnPrimary}>
-          Export to Excel
-        </button>
+        <ExportMenu
+          onExcel={() => (open.length ? setChecking(true) : void exportXlsx())}
+          onPdf={() => void exportPdf()}
+        />
       </Header>
       <div className="space-y-6 px-10 py-8">
         {saved && (
@@ -120,6 +125,7 @@ export function ReportView({
             </button>
           </div>
         )}
+        {open.length === 0 && <SurveyDoneCard exported={!!saved} onNewSurvey={onNewSurvey} />}
         {s.toReview > 0 && (
           <Alert
             tone="warning"
@@ -268,8 +274,6 @@ export function ReportView({
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-muted-foreground">
                 <dt>Date filmed</dt>
                 <dd className="text-foreground">{survey.surveyDate || "Not recorded"}</dd>
-                <dt>Type of water</dt>
-                <dd className="text-foreground">{survey.environment}</dd>
                 <dt>Analysed</dt>
                 <dd className="text-foreground">
                   {survey.createdAt}

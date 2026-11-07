@@ -179,7 +179,6 @@ Reference      {
 AnalysisRequest{
                     site: string, surveyDate: string,  // "YYYY-MM-DD" filmed, or ""
                     person: string,                     // who started it
-                    environment: string,
                     threshold: number,          // 0–1: below this, staff must check before it counts
                     sampling: 1 | 2 | 5,        // pictures per second of video
                     enhance: boolean,           // clear up murky water
@@ -203,7 +202,6 @@ Job            {
 SurveyInfo     {
                     id: number,
                     site: string,
-                    environment: string,
                     threshold: number,
                     createdAt: string,
                     surveyDate: string,

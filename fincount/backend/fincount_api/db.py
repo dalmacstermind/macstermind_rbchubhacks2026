@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS species (
   status TEXT NOT NULL, habitat TEXT NOT NULL, custom INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS surveys (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL, environment TEXT NOT NULL,
+  id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL,
   threshold REAL NOT NULL, files TEXT NOT NULL, status TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
@@ -115,6 +115,11 @@ MIGRATIONS = [
     ("surveys", "protocol_json", "TEXT"),
 ]
 
+# Columns no longer used. Older databases have them NOT NULL, which would block new inserts, so drop them.
+REMOVED_COLUMNS = [
+    ("surveys", "environment"),  # "Type of water" was removed from the app
+]
+
 
 def _norm(name: str) -> str:
     return re.sub(r"\s+", "", name).lower()
@@ -133,6 +138,10 @@ class Database(ProtocolStore):
                 cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
                 if column not in cols:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            for table, column in REMOVED_COLUMNS:
+                cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+                if column in cols:
+                    self.conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
             self.conn.commit()
         # CLAUDE.md: "Unidentified fish" is called "Unknown/Unable to ID due to visibility" (older databases).
         self.run("UPDATE species SET common = ? WHERE id = 'unknown' AND common = 'Unidentified fish'",
@@ -228,16 +237,16 @@ class Database(ProtocolStore):
     @staticmethod
     def _info(r) -> SurveyInfo:
         snapshot = snapshot_config(r["protocol_json"])
-        return SurveyInfo(id=r["id"], site=r["site"], environment=r["environment"], threshold=r["threshold"],
+        return SurveyInfo(id=r["id"], site=r["site"], threshold=r["threshold"],
                           created_at=r["created_at"], survey_date=r["survey_date"], created_by=r["created_by"],
                           files=json.loads(r["files"]), frame_count=r["frame_count"], status=r["status"],
                           protocol=to_settings(snapshot or default_protocol()), protocol_recorded=snapshot is not None)
 
-    def create_survey(self, site: str, environment: str, threshold: float, files: list[str],
+    def create_survey(self, site: str, threshold: float, files: list[str],
                       survey_date: str = "", created_by: str = "") -> int:
-        return self.run("INSERT INTO surveys (site, environment, threshold, files, status, survey_date, created_by) "
-                        "VALUES (?, ?, ?, ?, 'running', ?, ?)",
-                        site, environment, threshold, json.dumps(files), survey_date, created_by)
+        return self.run("INSERT INTO surveys (site, threshold, files, status, survey_date, created_by) "
+                        "VALUES (?, ?, ?, 'running', ?, ?)",
+                        site, threshold, json.dumps(files), survey_date, created_by)
 
     def update_survey(self, survey_id: int, site: str | None, survey_date: str | None) -> bool:
         if not self.one("SELECT 1 FROM surveys WHERE id = ?", survey_id):
