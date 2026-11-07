@@ -65,7 +65,9 @@ export function ReportView({
 
   const exportXlsx = async () => {
     setChecking(false);
-    const buf = await buildWorkbook({ data, summary: s, species, open, person: person.name });
+    // The Videos sheet needs each video's analysis window, which isn't part of the survey data.
+    const videos = await api.surveys.videos(survey.id);
+    const buf = await buildWorkbook({ data, summary: s, species, open, videos, person: person.name });
     const path = await window.desktop.saveXlsx(fileName, buf);
     if (path) setSaved(path);
   };

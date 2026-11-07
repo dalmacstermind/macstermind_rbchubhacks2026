@@ -7,7 +7,10 @@ import threading
 import time
 from pathlib import Path
 
-from .schemas import Box, Detection, Person, QcCount, QcCountIn, Species, SpeciesIn, SpeciesPatch, SurveyInfo
+from aquavision.protocol import WindowProposal
+
+from .schemas import (Box, Detection, Person, QcCount, QcCountIn, Species, SpeciesIn, SpeciesPatch, SurveyInfo,
+                      Video)
 
 # (id, common, scientific, status, habitat, kind). The real list comes from Coastal Action.
 DEFAULT_SPECIES = [
@@ -58,6 +61,17 @@ CREATE TABLE IF NOT EXISTS qc_counts (
   person TEXT NOT NULL, fish INTEGER NOT NULL, invertebrates INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   PRIMARY KEY (frame_id, person)
+);
+CREATE TABLE IF NOT EXISTS videos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+  file_name TEXT NOT NULL, path TEXT NOT NULL, duration_s REAL NOT NULL, fps REAL NOT NULL,
+  -- what the app proposed; never changed after it's written
+  proposed_start_s REAL, proposed_end_s REAL, proposed_reason TEXT NOT NULL,
+  settled INTEGER, too_short INTEGER NOT NULL DEFAULT 0, settle_score REAL,
+  -- what a person confirmed; empty until then
+  window_start_s REAL, window_end_s REAL,
+  confirmed_by TEXT NOT NULL DEFAULT '', confirmed_at TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -122,6 +136,9 @@ class Database:
 
     def remove_person(self, name: str):
         self.run("DELETE FROM people WHERE name = ?", name)
+
+    def person_exists(self, name: str) -> bool:
+        return self.one("SELECT 1 FROM people WHERE name = ?", name.strip()) is not None
 
     # ── Species ──
 
@@ -226,6 +243,42 @@ class Database:
                 "INSERT INTO detections (frame_id, species_id, model_species_id, confidence, x, y, w, h) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [(frame_id, sp, sp, conf, b.x, b.y, b.w, b.h) for sp, conf, b in detections])
+
+    # ── Videos & analysis windows ──
+
+    def add_video(self, survey_id: int, file_name: str, path: str, duration_s: float, fps: float,
+                  proposal: WindowProposal) -> int:
+        return self.run(
+            "INSERT INTO videos (survey_id, file_name, path, duration_s, fps, proposed_start_s, proposed_end_s, "
+            "proposed_reason, settled, too_short, settle_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            survey_id, file_name, path, duration_s, fps, proposal.start_s, proposal.end_s, proposal.reason,
+            None if proposal.settled is None else int(proposal.settled), int(proposal.too_short),
+            proposal.settle_score)
+
+    @staticmethod
+    def _video(r) -> Video:
+        return Video(id=str(r["id"]), survey_id=r["survey_id"], file_name=r["file_name"],
+                     duration_s=r["duration_s"], fps=r["fps"], proposed_start_s=r["proposed_start_s"],
+                     proposed_end_s=r["proposed_end_s"], proposed_reason=r["proposed_reason"],
+                     settled=None if r["settled"] is None else bool(r["settled"]), too_short=bool(r["too_short"]),
+                     settle_score=r["settle_score"], window_start_s=r["window_start_s"],
+                     window_end_s=r["window_end_s"], confirmed_by=r["confirmed_by"], confirmed_at=r["confirmed_at"])
+
+    def list_videos(self, survey_id: int) -> list[Video] | None:
+        if not self.one("SELECT 1 FROM surveys WHERE id = ?", survey_id):
+            return None
+        return [self._video(r) for r in self.all("SELECT * FROM videos WHERE survey_id = ? ORDER BY id", survey_id)]
+
+    def get_video(self, video_id: int) -> Video | None:
+        r = self.one("SELECT * FROM videos WHERE id = ?", video_id)
+        return self._video(r) if r else None
+
+    def confirm_window(self, video_id: int, start_s: float, end_s: float, by: str) -> Video | None:
+        """Save the window a person confirmed (or re-confirmed). The original proposal is kept."""
+        self.run("UPDATE videos SET window_start_s = ?, window_end_s = ?, confirmed_by = ?, "
+                 "confirmed_at = datetime('now','localtime') WHERE id = ?",
+                 round(start_s, 3), round(end_s, 3), by, video_id)
+        return self.get_video(video_id)
 
     def frame_image(self, frame_id: int):
         r = self.one("SELECT image_path FROM frames WHERE id = ?", frame_id)

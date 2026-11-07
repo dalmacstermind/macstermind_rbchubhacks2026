@@ -17,6 +17,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator
 
+from aquavision.config import AppConfig, ProtocolConfig
+from aquavision.frames import probe_video
+from aquavision.protocol import WindowProposal, propose_window
+
 from .db import Database
 from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus
 
@@ -115,8 +119,9 @@ class _JobState:
 
 
 class Jobs:
-    def __init__(self, db: Database, data_dir: Path):
+    def __init__(self, db: Database, data_dir: Path, protocol: ProtocolConfig, app: AppConfig):
         self.db, self.data_dir = db, data_dir
+        self.protocol, self.app = protocol, app
         self.jobs: dict[str, _JobState] = {}
         self.lock = threading.Lock()
 
@@ -175,6 +180,10 @@ class Jobs:
 
                 update(base, 0, f"Opening {src.name}")
                 try:
+                    proposal = None
+                    if src.suffix.lower() in VIDEO_EXT:
+                        update(base, 0, f"{src.name}: checking the analysis window")
+                        proposal = self._propose_window(job.survey_id, src)
                     for pic in extract_pictures(src, out_dir, f"f{i + 1}", req.sampling, req.enhance, progress):
                         if state.cancel.is_set():
                             raise InterruptedError
@@ -187,6 +196,9 @@ class Jobs:
                         self.db.add_frame(job.survey_id, src.name, pic.timestamp, str(pic.path), dets, clarity)
                     status.state = "done"
                     status.detail = f"{pictures} picture{'s' if pictures != 1 else ''} · {found} possible fish"
+                    if proposal is not None:
+                        status.detail += (" · too short for the protocol (flagged)" if proposal.too_short
+                                          else " · analysis window waiting for confirmation")
                 except InterruptedError:
                     raise
                 except Exception as e:  # one bad file never stops the rest of the batch
@@ -204,6 +216,13 @@ class Jobs:
         except Exception as e:  # shown to staff on the start screen
             self._discard(job, out_dir)
             job.state, job.error = "failed", str(e)
+
+    def _propose_window(self, survey_id: int, src: Path) -> WindowProposal:
+        """Propose the analysis window and store it for staff to confirm. Never confirms it."""
+        info = probe_video(src)  # an unreadable video fails here with a plain-English error
+        proposal = propose_window(src, self.protocol, self.app)
+        self.db.add_video(survey_id, src.name, str(src), info.duration_s, info.fps, proposal)
+        return proposal
 
     def _discard(self, job: Job, out_dir: Path):
         self.db.delete_survey(job.survey_id)

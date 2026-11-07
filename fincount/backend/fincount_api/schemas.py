@@ -95,6 +95,31 @@ class SurveyData(Model):
     frames: list[Frame]
 
 
+class Video(Model):
+    """One video in a survey, with the proposed analysis window and the one a person confirmed."""
+    id: str
+    survey_id: int
+    file_name: str
+    duration_s: float
+    fps: float
+    proposed_start_s: Optional[float] = None  # None when the video is too short for the protocol
+    proposed_end_s: Optional[float] = None
+    proposed_reason: str  # plain English, e.g. "Sediment until about 02:04, so a later start is suggested…"
+    settled: Optional[bool] = None  # False: sediment still unsettled at the latest allowed start
+    too_short: bool = False  # flagged: can't be confirmed or processed
+    settle_score: Optional[float] = None  # sediment score near the proposed start (lower = clearer)
+    window_start_s: Optional[float] = None  # confirmed by a person; None until then
+    window_end_s: Optional[float] = None
+    confirmed_by: str = ""
+    confirmed_at: str = ""
+
+
+class VideoWindowPatch(Model):
+    """Confirm (or change) a video's analysis window. Who did it comes from the X-FinCount-User header."""
+    window_start_s: float = Field(allow_inf_nan=False)
+    window_end_s: float = Field(allow_inf_nan=False)
+
+
 class AnalysisRequest(Model):
     site: str = ""
     survey_date: str = ""  # YYYY-MM-DD the footage was filmed; used by Trends

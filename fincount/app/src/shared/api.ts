@@ -58,6 +58,25 @@ export type SurveyInfo = {
 
 export type SurveyData = { survey: SurveyInfo; frames: Frame[] };
 
+/** One video in a survey: the analysis window TIDE proposed, and the one a person confirmed. */
+export type Video = {
+  id: string;
+  surveyId: number;
+  fileName: string;
+  durationS: number;
+  fps: number;
+  proposedStartS: number | null; // null when the video is too short for the protocol
+  proposedEndS: number | null;
+  proposedReason: string; // plain English, shown to staff
+  settled: boolean | null; // false: sediment still unsettled at the latest allowed start
+  tooShort: boolean; // flagged: can't be confirmed or processed
+  settleScore: number | null;
+  windowStartS: number | null; // confirmed by a person; null until then
+  windowEndS: number | null;
+  confirmedBy: string;
+  confirmedAt: string;
+};
+
 export type ModelStatus = { ready: boolean; demo: boolean; name: string; message: string };
 
 export type PickedFile = { path: string; name: string; size: number };
@@ -105,6 +124,12 @@ export type FinCountApi = {
     get: (id: number) => Promise<SurveyData>;
     update: (id: number, patch: { site?: string; surveyDate?: string }) => Promise<void>;
     remove: (id: number) => Promise<void>;
+    /** Each video's proposed and confirmed analysis window. */
+    videos: (id: number) => Promise<Video[]>;
+  };
+  videos: {
+    /** Confirm (or change) a video's analysis window, saved with the person's name. */
+    confirmWindow: (id: string, startS: number, endS: number, person: string) => Promise<Video>;
   };
   detections: {
     update: (id: string, patch: Pick<Detection, "speciesId" | "verified"> & { by: string }) => Promise<void>;

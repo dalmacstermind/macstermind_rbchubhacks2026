@@ -7,6 +7,12 @@ window:
   trim_end_s: 60            # discard the last 60 s (retrieval)
   max_extra_settle_s: 240   # extra settling allowed if sediment persists (a person confirms)
   length_s: 900             # analysis window: 15 min
+  # Sediment check near the start (see propose_window in aquavision/protocol.py).
+  # PLACEHOLDERS: chosen on synthetic test videos (clear water scored 0.09–0.46, simulated
+  # sediment 0.85–1.20). Calibrate on real Coastal Action footage before relying on them.
+  settle_threshold: 0.6     # settled when frame change ÷ contrast stays below this
+  settle_scan_fps: 2        # frames per second read while checking for sediment
+  settle_hold_s: 10         # must stay below the threshold this long to count as settled
 
 subsample:
   interval_s: 60            # one point every 60 s -> 15 points in a 15 min window

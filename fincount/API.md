@@ -63,6 +63,20 @@ While the back end is running, the same API is browsable and testable at **http:
 | GET | `/frames/{frameId}/image` | | the JPG/PNG picture |
 | PATCH | `/detections/{id}` | `{speciesId, verified, by}` | `204`. Saved the moment staff click; `by` is who did it |
 
+### Videos and analysis windows
+
+The window is proposed while a survey is processed (a later start if sediment hasn't settled) and is
+**never used until a person confirms it**. Rules come from `backend/config/protocol.yaml`.
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/surveys/{id}/videos` | | `Video[]`. `404` if the survey doesn't exist |
+| PATCH | `/videos/{id}` | `{windowStartS, windowEndS}` + header `X-FinCount-User: <URL-encoded name>` | `Video`. `400` if the person is missing or not on the people list; `404` no such video; `422` with a plain-English reason if the times break the protocol or the video is too short |
+
+Times are checked against the protocol: start no earlier than the trim (60 s), no later than the trim
+plus extra settling time (300 s), exactly the window length (900 s, one frame either way), and ending
+before the last 60 s of the video.
+
 ### Blind QC
 
 | Method | Path | Body | Returns |
@@ -122,6 +136,11 @@ SurveyInfo     {
                 }
 
 SurveyData     { survey: SurveyInfo, frames: Frame[] }
+Video          { id: string, surveyId: number, fileName: string, durationS: number, fps: number,
+                 proposedStartS: number | null, proposedEndS: number | null, proposedReason: string,
+                 settled: boolean | null, tooShort: boolean, settleScore: number | null,
+                 windowStartS: number | null, windowEndS: number | null,   // null until a person confirms
+                 confirmedBy: string, confirmedAt: string }
 
 Frame          { 
                     id: string, 
