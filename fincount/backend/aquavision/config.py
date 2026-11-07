@@ -12,7 +12,19 @@ import yaml
 
 
 class ConfigError(ValueError):
-    """A settings file is missing, unreadable, or has a value that makes no sense."""
+    """A settings file is missing, unreadable, or has a value that makes no sense.
+
+    key and reason are set when one setting is at fault (e.g. "subsample.interval_s", "must be more than 0"),
+    so the Settings screen can show the message next to that field in plain English.
+    """
+
+    def __init__(self, message: str, key: str | None = None, reason: str | None = None):
+        super().__init__(message)
+        self.key, self.reason = key, reason
+
+
+def _bad(where: str, key: str, reason: str) -> ConfigError:
+    return ConfigError(f"{where}: {key} {reason}", key, reason)
 
 
 @dataclass(frozen=True)
@@ -95,12 +107,20 @@ def default_config_dir() -> Path:
 
 def load_protocol_config(path: Path | None = None) -> ProtocolConfig:
     path = path or default_config_dir() / "protocol.yaml"
-    data = _read(path)
+    return parse_protocol(_read(path), path.name)
+
+
+def parse_protocol(data: dict[str, Any], where: str) -> ProtocolConfig:
+    """Check protocol settings from any source: a YAML file, saved settings, or a survey's snapshot.
+
+    where names the source in error messages, e.g. "protocol.yaml".
+    """
+    path = where
     window, sub, rich, count, qc, vis = (_section(data, name, path) for name in
                                          ("window", "subsample", "richness", "count", "qc", "visibility"))
     cats = vis.get("categories")
     if not isinstance(cats, list) or len(cats) < 2 or not all(isinstance(c, str) and c.strip() for c in cats):
-        raise ConfigError(f"{path.name}: visibility.categories must be a list of at least two names.")
+        raise _bad(where, "visibility.categories", "must be a list of at least two names.")
     cfg = ProtocolConfig(
         window=WindowConfig(
             trim_start_s=_num(window, "window.trim_start_s", path, minimum=0),
@@ -125,11 +145,49 @@ def load_protocol_config(path: Path | None = None) -> ProtocolConfig:
                     min_agreement=_num(qc, "qc.min_agreement", path, minimum=0)),
         visibility_categories=tuple(c.strip() for c in cats),
     )
-    if cfg.qc.sample_fraction > 1 or cfg.qc.min_agreement > 1:
-        raise ConfigError(f"{path.name}: qc.sample_fraction and qc.min_agreement are fractions (0–1).")
-    if cfg.subsample.first_point_offset_s >= cfg.subsample.interval_s:
-        raise ConfigError(f"{path.name}: subsample.first_point_offset_s must be less than subsample.interval_s.")
+    _check_protocol_rules(cfg, where)
     return cfg
+
+
+def _check_protocol_rules(cfg: ProtocolConfig, where: str) -> None:
+    """Rules that involve more than one setting, or a range a single number check can't express."""
+    w, sub, count, qc = cfg.window, cfg.subsample, cfg.count, cfg.qc
+    if qc.sample_fraction > 1:
+        raise _bad(where, "qc.sample_fraction", f"must be a fraction up to 1 (got {qc.sample_fraction:g}).")
+    if not 0.5 <= qc.min_agreement <= 1:
+        raise _bad(where, "qc.min_agreement", f"must be a fraction from 0.5 to 1 (got {qc.min_agreement:g}).")
+    if qc.max_pct_diff > 100:
+        raise _bad(where, "qc.max_pct_diff", f"must be a percentage from 0 to 100 (got {qc.max_pct_diff:g}).")
+    if count.tolerance_s > count.max_tolerance_s:
+        raise _bad(where, "count.tolerance_s", f"must not be more than the protocol's limit of "
+                                               f"±{count.max_tolerance_s:g} s (got {count.tolerance_s:g}).")
+    if sub.context_s < count.tolerance_s:
+        raise _bad(where, "subsample.context_s", f"must be at least the count tolerance (±{count.tolerance_s:g} s) "
+                                                 f"so the context covers it (got {sub.context_s:g}).")
+    if sub.interval_s > w.length_s:
+        raise _bad(where, "subsample.interval_s", f"must not be longer than the analysis window "
+                                                  f"({w.length_s:g} s) (got {sub.interval_s:g}).")
+    if sub.first_point_offset_s >= sub.interval_s:
+        raise _bad(where, "subsample.first_point_offset_s", f"must be less than the subsample interval "
+                                                            f"({sub.interval_s:g} s) (got {sub.first_point_offset_s:g}).")
+
+
+def protocol_to_dict(cfg: ProtocolConfig) -> dict[str, Any]:
+    """The same layout as protocol.yaml: used to save settings and each survey's snapshot."""
+    w, sub, count, qc = cfg.window, cfg.subsample, cfg.count, cfg.qc
+    return {
+        "window": {"trim_start_s": w.trim_start_s, "trim_end_s": w.trim_end_s,
+                   "max_extra_settle_s": w.max_extra_settle_s, "length_s": w.length_s,
+                   "settle_threshold": w.settle_threshold, "settle_scan_fps": w.settle_scan_fps,
+                   "settle_hold_s": w.settle_hold_s},
+        "subsample": {"interval_s": sub.interval_s, "unit_s": sub.unit_s, "context_s": sub.context_s,
+                      "first_point_offset_s": sub.first_point_offset_s},
+        "count": {"tolerance_s": count.tolerance_s, "max_tolerance_s": count.max_tolerance_s},
+        "richness": {"scan_fps": cfg.richness.scan_fps},
+        "qc": {"sample_fraction": qc.sample_fraction, "max_pct_diff": qc.max_pct_diff,
+               "min_agreement": qc.min_agreement},
+        "visibility": {"categories": list(cfg.visibility_categories)},
+    }
 
 
 def load_app_config(path: Path | None = None) -> AppConfig:
@@ -164,33 +222,37 @@ def _read(path: Path) -> dict[str, Any]:
     return data
 
 
-def _section(data: dict[str, Any], name: str, path: Path) -> dict[str, Any]:
+def _name(where: Path | str) -> str:
+    return where if isinstance(where, str) else where.name
+
+
+def _section(data: dict[str, Any], name: str, path: Path | str) -> dict[str, Any]:
     section = data.get(name)
     if not isinstance(section, dict):
-        raise ConfigError(f"{path.name}: the '{name}' section is missing.")
+        raise ConfigError(f"{_name(path)}: the '{name}' section is missing.", name, "is missing.")
     return section
 
 
-def _num(section: dict[str, Any], key: str, path: Path, *, minimum: float, strict: bool = False) -> float:
+def _num(section: dict[str, Any], key: str, path: Path | str, *, minimum: float, strict: bool = False) -> float:
     value = section.get(key.split(".")[-1])
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ConfigError(f"{path.name}: {key} must be a number (got {value!r}).")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:  # value != value: NaN
+        raise _bad(_name(path), key, f"must be a number (got {value!r}).")
     if value < minimum or (strict and value == minimum):
-        raise ConfigError(f"{path.name}: {key} must be {'more than' if strict else 'at least'} {minimum} (got {value}).")
+        raise _bad(_name(path), key, f"must be {'more than' if strict else 'at least'} {minimum:g} (got {value:g}).")
     return float(value)
 
 
-def _text(section: dict[str, Any], key: str, path: Path) -> str:
+def _text(section: dict[str, Any], key: str, path: Path | str) -> str:
     value = section.get(key.split(".")[-1])
     if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"{path.name}: {key} must be set.")
+        raise _bad(_name(path), key, "must be set.")
     return value.strip()
 
 
-def _fourcc(section: dict[str, Any], path: Path) -> str:
+def _fourcc(section: dict[str, Any], path: Path | str) -> str:
     value = _text(section, "clips.opencv_fourcc", path)
     if len(value) != 4:
-        raise ConfigError(f"{path.name}: clips.opencv_fourcc must be 4 characters, e.g. mp4v (got {value!r}).")
+        raise _bad(_name(path), "clips.opencv_fourcc", f"must be 4 characters, e.g. mp4v (got {value!r}).")
     return value
 
 

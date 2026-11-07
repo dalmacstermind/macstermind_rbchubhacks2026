@@ -283,6 +283,17 @@ export function ReportView({
                 <dd className="text-foreground">{survey.files.join(", ")}</dd>
                 <dt>Counted at</dt>
                 <dd className="text-foreground">{Math.round(survey.threshold * 100)}% certainty or higher</dd>
+                <dt>Protocol</dt>
+                <dd className="text-foreground">
+                  {survey.protocol.lengthS / 60}-min window, a point every {survey.protocol.intervalS} s (
+                  {survey.protocol.pointsPerWindow} points), ±{survey.protocol.contextS} s context, counted within ±
+                  {survey.protocol.toleranceS} s
+                  {!survey.protocolRecorded && (
+                    <div className="text-xs text-muted-foreground">
+                      Protocol values weren't recorded for this survey; these are the defaults.
+                    </div>
+                  )}
+                </dd>
                 {s.invertebrates > 0 && (
                   <>
                     <dt>Invertebrates</dt>

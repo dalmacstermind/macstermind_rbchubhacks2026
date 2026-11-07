@@ -52,9 +52,42 @@ export type SurveyInfo = {
   files: string[];
   frameCount: number;
   status: "running" | "done" | "failed" | "cancelled";
+  /** The protocol values this survey was processed with (the shipped defaults if they weren't recorded). */
+  protocol: ProtocolSettings;
+  /** false for surveys processed before TIDE recorded the values: then `protocol` is the shipped defaults. */
+  protocolRecorded: boolean;
 };
 
 export type SurveyData = { survey: SurveyInfo; frames: Frame[] };
+
+/** Protocol values on the Settings screen. Times in seconds, QC in percent. */
+export type ProtocolSettings = {
+  trimStartS: number;
+  trimEndS: number;
+  maxExtraSettleS: number;
+  lengthS: number; // analysis window
+  intervalS: number; // one subsample point every intervalS
+  firstPointOffsetS: number;
+  contextS: number; // ± seconds around each point
+  toleranceS: number; // ± seconds counted around each point
+  maxToleranceS: number; // the protocol's limit for toleranceS (shown, not changed)
+  qcSamplePct: number;
+  qcMaxDiffPct: number;
+  qcAgreementPct: number;
+  pointsPerWindow: number | null; // worked out by the back end
+};
+
+export type ProtocolSettingsState = {
+  values: ProtocolSettings; // what new processing will use
+  defaults: ProtocolSettings; // the shipped config/protocol.yaml
+  source: "default" | "custom";
+  changedBy: string;
+  changedAt: string;
+  warning: string;
+};
+
+/** Settings checked without saving: points per window, or a plain-English problem per field. */
+export type ProtocolCheck = { pointsPerWindow: number | null; errors: Partial<Record<keyof ProtocolSettings, string>> };
 
 export type ModelStatus = {
   ready: boolean;
@@ -340,8 +373,19 @@ export type FinCountApi = {
     update: (id: string, patch: Pick<Detection, "speciesId" | "verified"> & { by: string }) => Promise<void>;
   };
   qc: {
-    get: (surveyId: number, percent: number) => Promise<QcData>;
-    add: (surveyId: number, percent: number, c: Omit<QcCount, "createdAt">) => Promise<QcData>;
+    /** The sample size comes from the survey's protocol values (picked once, then kept). */
+    get: (surveyId: number) => Promise<QcData>;
+    add: (surveyId: number, c: Omit<QcCount, "createdAt">) => Promise<QcData>;
+  };
+  settings: {
+    protocol: {
+      get: () => Promise<ProtocolSettingsState>;
+      /** Check values without saving (as staff type). */
+      check: (s: ProtocolSettings) => Promise<ProtocolCheck>;
+      /** Save for new processing; saved with the person's name. */
+      save: (s: ProtocolSettings, person: string) => Promise<ProtocolSettingsState>;
+      reset: (person: string) => Promise<ProtocolSettingsState>;
+    };
   };
 };
 

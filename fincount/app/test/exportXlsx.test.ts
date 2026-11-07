@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SurveyData, Video } from "../src/shared/api";
 import { DEFAULT_SPECIES, summarize } from "../src/shared/survey";
 import { buildWorkbook, mmss, videoRows, windowOpenItems, VIDEO_COLUMNS } from "../src/renderer/src/exportXlsx";
+import { PROTOCOL_DEFAULTS } from "./fixtures";
 
 const video = (over: Partial<Video>): Video => ({
   id: "1",
@@ -88,6 +89,8 @@ describe("Videos sheet", () => {
         files: ["GX010021.MP4", "GX010022.MP4"],
         frameCount: 0,
         status: "done",
+        protocol: PROTOCOL_DEFAULTS,
+        protocolRecorded: true,
       },
       frames: [],
     };

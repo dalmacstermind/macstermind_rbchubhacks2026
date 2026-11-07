@@ -166,7 +166,17 @@ export const api: FinCountApi = {
   detections: { update: (id, patch) => http("PATCH", `/detections/${id}`, patch) },
 
   qc: {
-    get: (surveyId, percent) => http<QcData>("GET", `/surveys/${surveyId}/qc?percent=${percent}`),
-    add: (surveyId, percent, c) => http<QcData>("POST", `/surveys/${surveyId}/qc?percent=${percent}`, c),
+    get: (surveyId) => http<QcData>("GET", `/surveys/${surveyId}/qc`),
+    add: (surveyId, c) => http<QcData>("POST", `/surveys/${surveyId}/qc`, c),
+  },
+
+  settings: {
+    protocol: {
+      get: () => http("GET", "/settings/protocol"),
+      check: (s) => http("PUT", "/settings/protocol?check=true", s),
+      // Who's working goes in a header, URL-encoded so names like "Zoë" survive (see videos.confirmWindow).
+      save: (s, person) => http("PUT", "/settings/protocol", s, { "X-FinCount-User": enc(person) }),
+      reset: (person) => http("DELETE", "/settings/protocol", undefined, { "X-FinCount-User": enc(person) }),
+    },
   },
 };

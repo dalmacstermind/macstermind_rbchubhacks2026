@@ -9,9 +9,11 @@ from pathlib import Path
 
 import numpy as np
 
+from aquavision.config import ProtocolConfig, protocol_to_dict
 from aquavision.protocol import WindowProposal
 
 from .db_protocol import PROTOCOL_MIGRATIONS, PROTOCOL_SCHEMA, ProtocolStore
+from .settings import default_protocol, snapshot_config, to_settings
 from .schemas import (Box, Detection, Person, QcCount, QcCountIn, Reference, Species, SpeciesIn, SpeciesPatch,
                       Suggestion, SurveyInfo, Video)
 
@@ -86,6 +88,12 @@ CREATE TABLE IF NOT EXISTS videos (
   window_start_s REAL, window_end_s REAL,
   confirmed_by TEXT NOT NULL DEFAULT '', confirmed_at TEXT NOT NULL DEFAULT ''
 );
+-- Every save or reset of the protocol settings (Settings screen): who, when, before and after.
+CREATE TABLE IF NOT EXISTS protocol_changes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, changed_by TEXT NOT NULL, action TEXT NOT NULL,
+  old_json TEXT NOT NULL, new_json TEXT NOT NULL,
+  changed_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 """
 
 # Columns added after the first version. Existing databases get them on start-up.
@@ -103,6 +111,8 @@ MIGRATIONS = [
     ("detections", "top_k", "TEXT NOT NULL DEFAULT '[]'"),
     ("detections", "novelty", "REAL"),
     ("detections", "unknown_reason", "TEXT NOT NULL DEFAULT ''"),
+    # The protocol values a survey was processed with (JSON, protocol.yaml layout). NULL for older surveys.
+    ("surveys", "protocol_json", "TEXT"),
 ]
 
 # Columns no longer used. Older databases have them NOT NULL, which would block new inserts, so drop them.
@@ -226,9 +236,11 @@ class Database(ProtocolStore):
 
     @staticmethod
     def _info(r) -> SurveyInfo:
+        snapshot = snapshot_config(r["protocol_json"])
         return SurveyInfo(id=r["id"], site=r["site"], threshold=r["threshold"],
                           created_at=r["created_at"], survey_date=r["survey_date"], created_by=r["created_by"],
-                          files=json.loads(r["files"]), frame_count=r["frame_count"], status=r["status"])
+                          files=json.loads(r["files"]), frame_count=r["frame_count"], status=r["status"],
+                          protocol=to_settings(snapshot or default_protocol()), protocol_recorded=snapshot is not None)
 
     def create_survey(self, site: str, threshold: float, files: list[str],
                       survey_date: str = "", created_by: str = "") -> int:
@@ -247,6 +259,23 @@ class Database(ProtocolStore):
 
     def set_survey_status(self, survey_id: int, status: str):
         self.run("UPDATE surveys SET status = ? WHERE id = ?", status, survey_id)
+
+    # ── Protocol settings: each survey's snapshot, and the change history ──
+
+    def set_survey_protocol(self, survey_id: int, cfg: ProtocolConfig):
+        self.run("UPDATE surveys SET protocol_json = ? WHERE id = ?", json.dumps(protocol_to_dict(cfg)), survey_id)
+
+    def survey_protocol(self, survey_id: int) -> ProtocolConfig | None:
+        """The protocol values a survey was processed with, or None if they weren't recorded."""
+        r = self.one("SELECT protocol_json FROM surveys WHERE id = ?", survey_id)
+        return snapshot_config(r["protocol_json"]) if r else None
+
+    def add_protocol_change(self, person: str, action: str, old_json: str, new_json: str):
+        self.run("INSERT INTO protocol_changes (changed_by, action, old_json, new_json) VALUES (?, ?, ?, ?)",
+                 person, action, old_json, new_json)
+
+    def last_protocol_change(self):
+        return self.one("SELECT * FROM protocol_changes ORDER BY id DESC LIMIT 1")
 
     def list_surveys(self) -> list[SurveyInfo]:
         return [self._info(r) for r in self.all(f"{self._SURVEY} WHERE s.status = 'done' ORDER BY s.id DESC")]

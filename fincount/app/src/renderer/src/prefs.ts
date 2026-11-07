@@ -7,9 +7,6 @@ export type Prefs = {
   sampling: Sampling;
   enhance: boolean;
   ignoreSpecks: boolean;
-  qcPercent: number; // % of pictures picked for blind QC
-  qcMaxDiff: number; // % difference that asks for a recount
-  qcTarget: number; // % of QC pictures that should agree
   notify: boolean; // desktop notification when counting finishes
 };
 
@@ -18,9 +15,6 @@ export const DEFAULT_PREFS: Prefs = {
   sampling: 1,
   enhance: true,
   ignoreSpecks: true,
-  qcPercent: 10,
-  qcMaxDiff: 6,
-  qcTarget: 95,
   notify: true,
 };
 

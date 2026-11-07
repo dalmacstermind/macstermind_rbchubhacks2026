@@ -104,6 +104,38 @@ class Frame(Model):
     detections: list[Detection]
 
 
+class ProtocolSettings(Model):
+    """The protocol values the Settings screen shows and changes. Times in seconds, QC in percent."""
+    trim_start_s: float = Field(allow_inf_nan=False)
+    trim_end_s: float = Field(allow_inf_nan=False)
+    max_extra_settle_s: float = Field(allow_inf_nan=False)
+    length_s: float = Field(allow_inf_nan=False)  # analysis window
+    interval_s: float = Field(allow_inf_nan=False)  # one subsample point every interval_s
+    first_point_offset_s: float = Field(allow_inf_nan=False)
+    context_s: float = Field(allow_inf_nan=False)  # ± seconds around each point
+    tolerance_s: float = Field(allow_inf_nan=False)  # ± seconds counted around each point
+    max_tolerance_s: float = 1.0  # the protocol's limit for tolerance_s; shown, not changed here
+    qc_sample_pct: float = Field(allow_inf_nan=False)  # % of points picked for blind QC
+    qc_max_diff_pct: float = Field(allow_inf_nan=False)  # counts further apart than this need a recount
+    qc_agreement_pct: float = Field(allow_inf_nan=False)  # % of QC points that should agree
+    points_per_window: Optional[int] = None  # worked out by the back end; ignored when saving
+
+
+class ProtocolSettingsState(Model):
+    values: ProtocolSettings  # what new processing will use
+    defaults: ProtocolSettings  # the shipped config/protocol.yaml
+    source: Literal["default", "custom"]
+    changed_by: str = ""  # last save or reset
+    changed_at: str = ""
+    warning: str = ""  # e.g. the saved copy couldn't be read, so the defaults are in use
+
+
+class ProtocolCheck(Model):
+    """Result of checking settings without saving them: points per window, or what's wrong per field."""
+    points_per_window: Optional[int] = None
+    errors: dict[str, str] = {}  # field name (e.g. "intervalS") -> plain-English reason
+
+
 class SurveyInfo(Model):
     id: int
     site: str
@@ -114,6 +146,10 @@ class SurveyInfo(Model):
     files: list[str]
     frame_count: int
     status: Literal["running", "done", "failed", "cancelled"]
+    # The protocol values this survey was processed with. For surveys processed before these were
+    # recorded, the shipped defaults, and protocol_recorded is False (the report says so).
+    protocol: Optional[ProtocolSettings] = None
+    protocol_recorded: bool = False
 
 
 class SurveyPatch(Model):

@@ -133,8 +133,25 @@ before the last 60 s of the video.
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
-| GET | `/surveys/{id}/qc?percent=10` | | `QcData`. The random sample is picked the first time, then kept |
-| POST | `/surveys/{id}/qc?percent=10` | `{frameId, person, fish, invertebrates}` | `QcData`. Counting the same picture again replaces your earlier count |
+| GET | `/surveys/{id}/qc` | | `QcData`. The random sample is picked the first time, then kept. Its size comes from the survey's protocol values (`qcSamplePct`); `?percent=` overrides it |
+| POST | `/surveys/{id}/qc` | `{frameId, person, fish, invertebrates}` | `QcData`. Counting the same picture again replaces your earlier count |
+
+### Protocol settings (Settings screen)
+
+Defaults ship in `backend/config/protocol.yaml`; staff changes are saved to `protocol.yaml` in the data
+folder. Changes apply to **new processing only**: each survey keeps the values it was processed with
+(`SurveyInfo.protocol`).
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/settings/protocol` | | `ProtocolSettingsState` |
+| PUT | `/settings/protocol?check=true` | `ProtocolSettings` | `ProtocolCheck`: nothing is saved. `pointsPerWindow`, or `errors` (field → plain-English reason) |
+| PUT | `/settings/protocol` | `ProtocolSettings` + header `X-FinCount-User: <URL-encoded name>` | `ProtocolSettingsState`. `400` if the person is missing or not on the people list; `422` with the first problem if a value breaks a rule |
+| DELETE | `/settings/protocol` | header `X-FinCount-User` | `ProtocolSettingsState`, back to the shipped defaults |
+
+Rules checked: every time ≥ 0 (window length and interval > 0); count tolerance ≤ the protocol's ±1 s
+limit; context ≥ tolerance; interval ≤ window length; first-point offset < interval; QC sample
+1–100%, maximum difference 0–100%, agreement target 50–100%.
 
 ## Shapes
 
@@ -190,8 +207,18 @@ SurveyInfo     {
                     surveyDate: string,
                     createdBy: string,
                     files: string[],
-                    frameCount: number, status: "running" | "done" | "failed" | "cancelled"
+                    frameCount: number, status: "running" | "done" | "failed" | "cancelled",
+                    protocol: ProtocolSettings,     // the values this survey was processed with
+                    protocolRecorded: boolean       // false: processed before these were recorded (defaults shown)
                 }
+
+ProtocolSettings      { trimStartS, trimEndS, maxExtraSettleS, lengthS, intervalS, firstPointOffsetS,
+                        contextS, toleranceS, maxToleranceS, qcSamplePct, qcMaxDiffPct, qcAgreementPct: number,
+                        pointsPerWindow: number | null }   // seconds and percent; maxToleranceS and
+                                                           // pointsPerWindow are ignored when saving
+ProtocolSettingsState { values: ProtocolSettings, defaults: ProtocolSettings, source: "default" | "custom",
+                        changedBy: string, changedAt: string, warning: string }
+ProtocolCheck         { pointsPerWindow: number | null, errors: { [field]: string } }
 
 SurveyData     { survey: SurveyInfo, frames: Frame[] }
 Video          { id: string, surveyId: number, fileName: string, durationS: number, fps: number,

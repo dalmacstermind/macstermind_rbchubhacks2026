@@ -35,6 +35,7 @@ from aquavision.species import BioClipEncoder, ReferenceIndex, crop_box, match
 
 from .db import Database
 from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus, Reidentified
+from .settings import survey_protocol
 
 log = logging.getLogger(__name__)
 SAMPLE_DIR = Path(__file__).parent / "sample"
@@ -291,6 +292,8 @@ class _JobState:
 class Jobs:
     def __init__(self, db: Database, data_dir: Path, protocol: ProtocolConfig, app: AppConfig):
         self.db, self.data_dir = db, data_dir
+        # protocol: the current settings, used for new surveys only. Each survey keeps a snapshot of the
+        # values it started with (protocol_for), so changing the settings never alters earlier surveys.
         self.protocol, self.app = protocol, app
         self.jobs: dict[str, _JobState] = {}
         self.lock = threading.Lock()
@@ -308,6 +311,7 @@ class Jobs:
             names = [Path(f).name for f in req.files]
             survey_id = self.db.create_survey(req.site.strip() or "Untitled survey", req.threshold, names,
                                               req.survey_date, req.person)
+            self.db.set_survey_protocol(survey_id, self.protocol)  # the values this survey is processed with
             files = [FileStatus(name=n, state="waiting") if Path(f).suffix.lower() in IMAGE_EXT | VIDEO_EXT
                      else FileStatus(name=n, state="skipped", detail="Not a video or photo")
                      for f, n in zip(req.files, names)]
@@ -316,6 +320,10 @@ class Jobs:
             state = self.jobs[job.job_id] = _JobState(job)
         threading.Thread(target=self._run, args=(state, req), daemon=True).start()
         return job
+
+    def protocol_for(self, survey_id: int) -> ProtocolConfig:
+        """The protocol values a survey was processed with (see settings.survey_protocol)."""
+        return survey_protocol(self.db, survey_id)
 
     def get(self, job_id: str) -> Job | None:
         s = self.jobs.get(job_id)
@@ -472,7 +480,7 @@ class Jobs:
     def _propose_window(self, survey_id: int, src: Path, file_key: str = "", survey_date: str = "") -> WindowProposal:
         """Propose the analysis window and store it for staff to confirm. Never confirms it."""
         info = probe_video(src)  # an unreadable video fails here with a plain-English error
-        proposal = propose_window(src, self.protocol, self.app)
+        proposal = propose_window(src, self.protocol_for(survey_id), self.app)
         video_id = self.db.add_video(survey_id, src.name, str(src), info.duration_s, info.fps, proposal)
         transect, stat = transect_stat(str(src))
         when = recorded_date(str(src))
@@ -529,7 +537,7 @@ class Jobs:
             self.db.set_count_state(video_id, "running", f"Counting the points: {int(fr * 100)}%")
 
         res = analyser.analyse_video(
-            Path(v["path"]), key, window=window, protocol=self.protocol, app=self.app,
+            Path(v["path"]), key, window=window, protocol=self.protocol_for(v["survey_id"]), app=self.app,
             clip_dir=out_dir / "clips" / key, enhance=req.enhance,
             index=ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name)),
             save_picture=lambda img, name: _save_jpg(img, out_dir / f"{key}_{name}.jpg"),
