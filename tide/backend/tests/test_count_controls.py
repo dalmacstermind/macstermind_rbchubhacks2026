@@ -8,9 +8,11 @@ import threading
 import time
 from urllib.parse import quote
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tide.config import load_vision_config
+from tide_api.pipeline import count_progress_text
 from conftest import confirm_and_count, use_short_protocol
 from test_vision import FakeDetector, FakeEncoder
 
@@ -78,6 +80,29 @@ def test_windows_to_confirm_until_a_person_confirms(tmp_path, monkeypatch, synth
     assert client.get(f"/surveys/{sid}").json()["survey"]["windowsToConfirm"] == 1
     confirm_and_count(client, sid)
     assert _survey(client, sid)["windowsToConfirm"] == 0
+
+
+def test_survey_and_counts_say_what_is_not_counted_yet(tmp_path, monkeypatch, synthetic_video):
+    _, client = _api(tmp_path, monkeypatch, FakeDetector())
+    sid = _analyse(client, synthetic_video)
+    s = _survey(client, sid)
+    assert (s["videosToCount"], s["videosCounting"]) == (1, 0)  # processed is not the same as counted
+    assert client.get("/counts").json() == []
+    confirm_and_count(client, sid)
+    s = _survey(client, sid)
+    assert (s["videosToCount"], s["videosCounting"]) == (0, 0)
+    row = next(c for c in client.get("/counts").json() if c["surveyId"] == sid)
+    assert row["state"] == "done" and row["fileName"] and "points" in row["detail"]
+
+
+@pytest.mark.parametrize("fraction, elapsed, expected", [
+    (0.01, 100, "Counting the points: 1%"),  # too early to guess
+    (0.5, 20, "Counting the points: 50% · less than a minute left"),
+    (0.25, 600, "Counting the points: 25% · about 30 min left"),
+    (0.25, 1600, "Counting the points: 25% · about 1 h 20 min left"),
+])
+def test_count_progress_text_gives_the_time_left(fraction, elapsed, expected):
+    assert count_progress_text(fraction, elapsed) == expected
 
 
 def test_stop_a_running_count_then_count_again(tmp_path, monkeypatch, synthetic_video):

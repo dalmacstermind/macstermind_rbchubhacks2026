@@ -52,7 +52,7 @@ export function useOverview(species: Species[]) {
         const [data, qc] = await Promise.all([api.surveys.get(info.id), api.qc.get(info.id)]);
         const summary = summarize(data.frames, species, data.survey.threshold);
         const q = qcState(data, qc, species);
-        return { data, summary, qc: q, open: openItems(summary, q) };
+        return { data, summary, qc: q, open: openItems(summary, q, data.survey) };
       }),
     );
     setItems(all);

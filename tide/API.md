@@ -86,7 +86,11 @@ a different window counts again from scratch. Videos too short for the protocol 
 Counting can be stopped (`POST /videos/{id}/count/stop`) and started again on the same confirmed window
 (`POST /videos/{id}/count`). Nothing of a stopped count is saved. A count that was waiting or running
 when TIDE closed is marked `stopped` at the next start-up (it can't carry on), with a plain-English
-`countDetail`. `SurveyInfo.windowsToConfirm` says how many videos still wait for a person.
+`countDetail`. `SurveyInfo.windowsToConfirm` says how many videos still wait for a person,
+`videosToCount` how many have no finished count yet, and `videosCounting` how many of those are waiting
+in the queue or being counted. `GET /counts` lists every video queued for counting, across all surveys,
+with its `state` (`queued`, `running`, `done`, `failed`, `stopped`) and a plain-English `detail`
+(while running: the percentage and, once it can be estimated, the time left).
 
 Videos are analysed per the FFH protocol (`config/protocol.yaml`): confirmed window, a point every
 `subsample.interval_s`, each point's ±`context_s` clip tracked so one fish counts once, counted only
@@ -130,6 +134,7 @@ The window is proposed while a survey is processed (a later start if sediment ha
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/surveys/{id}/videos` | | `Video[]`. `404` if the survey doesn't exist |
+| GET | `/counts` | | `CountStatus[]`: `{videoId, surveyId, site, fileName, state, detail}` |
 | PATCH | `/videos/{id}` | `{windowStartS, windowEndS}` + header `X-TIDE-User: <URL-encoded name>` | `Video`. `400` if the person is missing or not on the people list; `404` no such video; `422` with a plain-English reason if the times break the protocol or the video is too short |
 
 Times are checked against the protocol: start no earlier than the trim (60 s), no later than the trim
@@ -231,7 +236,9 @@ SurveyInfo     {
                     frameCount: number, status: "running" | "done" | "failed" | "cancelled",
                     protocol: ProtocolSettings,     // the values this survey was processed with
                     protocolRecorded: boolean,      // false: processed before these were recorded (defaults shown)
-                    windowsToConfirm: number        // videos whose analysis window no person has confirmed (nothing counted)
+                    windowsToConfirm: number,       // videos whose analysis window no person has confirmed (nothing counted)
+                    videosToCount: number,          // videos with no finished count yet
+                    videosCounting: number          // of those, waiting in the queue or being counted now
                 }
 
 ProtocolSettings      { trimStartS, trimEndS, maxExtraSettleS, lengthS, intervalS, firstPointOffsetS,

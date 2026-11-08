@@ -15,7 +15,7 @@ from tide.protocol import WindowProposal
 
 from .db_protocol import PROTOCOL_MIGRATIONS, PROTOCOL_SCHEMA, ProtocolStore
 from .settings import default_protocol, snapshot_config, to_settings
-from .schemas import (Box, Detection, Person, QcCount, QcCountIn, Reference, Species, SpeciesIn, SpeciesPatch,
+from .schemas import (Box, CountStatus, Detection, Person, QcCount, QcCountIn, Reference, Species, SpeciesIn, SpeciesPatch,
                       Suggestion, SurveyInfo, Video)
 
 # (id, common, scientific, status, habitat, kind). The real list comes from Coastal Action.
@@ -278,7 +278,12 @@ class Database(ProtocolStore):
 
     _SURVEY = ("SELECT s.*, (SELECT COUNT(*) FROM frames f WHERE f.survey_id = s.id) AS frame_count, "
                "(SELECT COUNT(*) FROM videos v WHERE v.survey_id = s.id AND v.too_short = 0 "
-               "AND COALESCE(v.confirmed_by, '') = '') AS windows_to_confirm FROM surveys s")
+               "AND COALESCE(v.confirmed_by, '') = '') AS windows_to_confirm, "
+               "(SELECT COUNT(*) FROM videos v WHERE v.survey_id = s.id AND v.too_short = 0 "
+               "AND COALESCE(v.count_state, '') <> 'done' AND (v.count_state IN ('queued', 'running') "
+               "OR NOT EXISTS (SELECT 1 FROM points p WHERE p.video_id = v.id))) AS videos_to_count, "
+               "(SELECT COUNT(*) FROM videos v WHERE v.survey_id = s.id "
+               "AND v.count_state IN ('queued', 'running')) AS videos_counting FROM surveys s")
 
     @staticmethod
     def _info(r) -> SurveyInfo:
@@ -287,7 +292,16 @@ class Database(ProtocolStore):
                           created_at=r["created_at"], survey_date=r["survey_date"], created_by=r["created_by"],
                           files=json.loads(r["files"]), frame_count=r["frame_count"], status=r["status"],
                           protocol=to_settings(snapshot or default_protocol()), protocol_recorded=snapshot is not None,
-                          windows_to_confirm=r["windows_to_confirm"])
+                          windows_to_confirm=r["windows_to_confirm"], videos_to_count=r["videos_to_count"],
+                          videos_counting=r["videos_counting"])
+
+    def count_statuses(self) -> list[CountStatus]:
+        """Every video that has been queued for counting, with how that count is going."""
+        return [CountStatus(video_id=r["id"], survey_id=r["survey_id"], site=r["site"], file_name=r["file_name"],
+                            state=r["count_state"], detail=r["count_detail"] or "")
+                for r in self.all("SELECT v.id, v.survey_id, v.file_name, v.count_state, v.count_detail, s.site "
+                                  "FROM videos v JOIN surveys s ON s.id = v.survey_id "
+                                  "WHERE COALESCE(v.count_state, '') <> '' ORDER BY v.id")]
 
     def create_survey(self, site: str, threshold: float, files: list[str],
                       survey_date: str = "", created_by: str = "") -> int:

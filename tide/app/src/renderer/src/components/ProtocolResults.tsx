@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Person, SurveyResults } from "../../../shared/api";
 import type { Species } from "../../../shared/survey";
 import { api } from "../api";
-import { Alert, btnGhost, plural } from "../ui";
+import { Alert, btnPrimary, plural } from "../ui";
 import { EvaluationPanel } from "./EvaluationPanel";
 import { ImageResultsTable } from "./ImageResultsTable";
 import { VideoResultCard } from "./VideoResultCard";
@@ -67,7 +67,7 @@ export function ProtocolResults({
 
   const name = (id: string) => species.find((s) => s.id === id)?.common ?? id;
   return (
-    <section className="space-y-4">
+    <section id="protocol-results" className="scroll-mt-4 space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="font-display text-xl font-semibold">Protocol results</h2>
@@ -85,7 +85,7 @@ export function ProtocolResults({
           title={`${plural(unconfirmed.length, "video")} waiting for you: confirm the analysis window`}
           action={
             <button
-              className={btnGhost}
+              className={btnPrimary}
               onClick={() =>
                 document.getElementById(`video-${unconfirmed[0]?.id}`)?.scrollIntoView({ behavior: "smooth" })
               }

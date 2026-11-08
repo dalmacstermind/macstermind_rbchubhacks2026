@@ -7,7 +7,7 @@ import type { SurveyOverview } from "../overview";
 import { Chip, Disclosure, Field, Header, btnGhost, btnLink, btnPrimary, formatBytes, plural, useConfirm } from "../ui";
 
 export type SurveyForm = Omit<AnalysisRequest, "files" | "person">;
-export type OpenTarget = "report" | OpenItem["key"];
+export type OpenTarget = "report" | Exclude<OpenItem["key"], "window" | "count">;
 
 const RECENT = 5; // surveys listed before "Show all"
 
@@ -298,33 +298,24 @@ function SurveyRow({
         <div className="truncate text-sm font-medium">{s.site}</div>
         <div className="text-xs text-muted-foreground">
           {s.surveyDate ? `Filmed ${s.surveyDate}` : "No date filmed"} · {plural(s.frameCount, "picture")} ·{" "}
-          {o.summary.total} fish
+          {s.videosToCount > 0 && o.summary.total === 0 ? "not counted yet" : `${o.summary.total} fish`}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {s.windowsToConfirm > 0 && (
-          <button
-            onClick={() => onOpen(s.id, "report")}
-            className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
-            title="Go there"
-          >
-            <Chip tone="review">
-              {s.windowsToConfirm === 1 ? "1 analysis window" : `${s.windowsToConfirm} analysis windows`} to confirm →
-            </Chip>
-          </button>
+        {o.open.length === 0 ? (
+          <Chip tone="done">All checked</Chip>
+        ) : (
+          o.open.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => onOpen(s.id, item.key === "window" || item.key === "count" ? "report" : item.key)}
+              className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+              title="Go there"
+            >
+              <Chip tone="review">{item.text} →</Chip>
+            </button>
+          ))
         )}
-        {o.open.length === 0
-          ? s.windowsToConfirm === 0 && <Chip tone="done">All checked</Chip>
-          : o.open.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => onOpen(s.id, item.key)}
-                className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
-                title="Go there"
-              >
-                <Chip tone="review">{item.text} →</Chip>
-              </button>
-            ))}
         <button className={`${btnLink} ml-2`} onClick={() => onOpen(s.id, "report")}>
           Open report
         </button>

@@ -112,6 +112,23 @@ def estimate_clarity(picture: Path) -> float | None:
     return None
 
 
+# Too early in a count, the time so far says little about the time left.
+MIN_FRACTION_FOR_ESTIMATE = 0.02
+
+
+def count_progress_text(fraction: float, elapsed_s: float) -> str:
+    """What staff read while a video is counted: the percentage and, once it means something, the time left."""
+    text = f"Counting the points: {int(fraction * 100)}%"
+    if fraction < MIN_FRACTION_FOR_ESTIMATE or elapsed_s <= 0:
+        return text
+    left_s = elapsed_s * (1 - fraction) / fraction
+    if left_s < 60:
+        return f"{text} · less than a minute left"
+    hours, minutes = divmod(round(left_s / 60), 60)
+    left = f"{hours} h {minutes} min" if hours else f"{minutes} min"
+    return f"{text} · about {left} left"
+
+
 @cache
 def _importable(module: str) -> bool:
     """True if a Python package is installed. find_spec looks for it without importing it (importing
@@ -688,9 +705,11 @@ class Jobs:
         out_dir = self.surveys_dir() / str(v["survey_id"])
         key = window.video_id
 
+        started = time.monotonic()  # after the models loaded, so loading them doesn't skew the time left
+
         def progress(fr: float):
             if not run.stop.is_set():  # a stopped count must not write "Counting…" over "stopped"
-                self.db.set_count_state(video_id, "running", f"Counting the points: {int(fr * 100)}%")
+                self.db.set_count_state(video_id, "running", count_progress_text(fr, time.monotonic() - started))
 
         clip_dir = out_dir / "clips" / key
         saved: list[Path] = []
