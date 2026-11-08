@@ -124,7 +124,9 @@ tide/
     src/renderer/src/
       api.ts                     every backend call
       ui.tsx                     shared UI pieces (Chip, Modal, Field, buttons…)
-      components/                VideoPlayer, PointTimeline, PointPanel, UnknownGallery,
+      pages.ts                   the Page type: which screen is showing (no URLs)
+      components/                AppTopBar, ToolsSidebar, StepTabs (the app frame, see App frame),
+                                 VideoPlayer, PointTimeline, PointPanel, UnknownGallery,
                                  LabelCanvas, LabelPicker, NewSpeciesForm, TrendsChart…
                                  (today: SuggestionButtons, ReferencePictures, UseAsReference, MatchAgainButton,
                                  ProtocolResults, VideoResultCard, PointTable, PointEditor, ImageResultsTable,
@@ -185,6 +187,45 @@ working, light/dark theme, shortcuts sheet, export check) and add the missing wi
 - **Remove from the app:** invasive/unusual alerts and stat tiles, MaxN as the headline count,
   "Unidentified fish" (use "Unknown/Unable to ID due to visibility"), and protocol settings kept
   only in `localStorage`.
+
+## App frame (every screen)
+
+Every screen after "Who's working?" has the same frame (`App.tsx`):
+
+```
+┌ Top bar: TIDE logo ······················· mode · ? Shortcuts · Light/Dark · person · Offline ┐
+├ Tools column ┬ Step tabs: 1 New survey | 2 Counting | 3 Report | 4 Check the fish | 5 Label … ┤
+│ TOOLS        │                                                                               │
+│ Blind QC     │                         the current page                                      │
+│ Trends       │                                                                               │
+│ Species list │                                                                               │
+│ Settings     │                                                                               │
+```
+
+1. **Top bar** (`components/AppTopBar.tsx`), across the whole window: TIDE logo on the left; on the
+   right the model mode ("Demo mode · sample data", "GPU mode" or "CPU mode (slower)"),
+   "? Shortcuts", the Light/Dark switch, who's working (click to switch person) and "Offline"
+   (tooltip: nothing leaves this computer).
+2. **Tools column** (`components/ToolsSidebar.tsx`), a narrow column on the left under a **Tools**
+   heading: **Blind QC, Trends, Species list, Settings**. Locked while a survey is being counted.
+3. **Step tabs** (`components/StepTabs.tsx`), one horizontal row of five tabs above the page, in
+   this order: **New survey | Counting | Report | Check the fish | Label unknown fish**, numbered
+   1–5. "Check the fish" carries the badge of fish still to check or name. Counting is a progress
+   step and never clickable; Report, Check the fish and Label need an open survey; everything
+   except the current step is locked while a survey is being counted.
+4. **The current page** (`<main>`), to the right of the Tools column, scrolling on its own.
+
+Rules for the navigation:
+
+- The current step tab is **bold and underlined**; the current tool is **bold with a bar on its
+  left**. Neither relies on colour alone, and both have `aria-current="page"`.
+- Tabs are plain `<button>`s: Tab moves between them, Enter opens one, and the focus outline is
+  visible (`focus-visible:ring`, inset in the scrolling tab row so it isn't clipped).
+- The tab row and the top bar never wrap: on narrow windows (down to 1280 px and below) they scroll sideways.
+- Colours come only from the theme variables in `styles.css` (`sidebar-*`, `primary`, `border`,
+  `card`, `muted-foreground`), so both work in light and dark mode. No hard-coded colours.
+- There are no URLs: `App.tsx` keeps the current screen in `page` (type `Page` in `pages.ts`), and
+  the Tools column and the step tabs change it with `go(page)`.
 
 ## Adding media
 

@@ -190,7 +190,7 @@ function QcCounting({
                 </button>
               }
             >
-              A blind check works best when someone else does it. You can switch person from the bottom of the sidebar.
+              A blind check works best when someone else does it. You can switch person from your name in the top bar.
             </Alert>
           </div>
         )}
