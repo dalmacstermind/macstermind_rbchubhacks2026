@@ -7,6 +7,7 @@ as a background job, saves the pictures and writes the results to the database.
 Demo mode (no model files): the old stub below still runs, and the app shows "Demo mode" so
 sample results are never presented as live inference (CLAUDE.md, hard constraint 7).
 """
+import importlib.util
 import logging
 import random
 import shutil
@@ -14,6 +15,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from functools import cache
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator
@@ -107,6 +109,17 @@ def estimate_clarity(picture: Path) -> float | None:
     return None
 
 
+@cache
+def _importable(module: str) -> bool:
+    """True if a Python package is installed. find_spec looks for it without importing it (importing
+    PyTorch takes seconds). Cached: installing packages needs a back-end restart anyway."""
+    return importlib.util.find_spec(module) is not None
+
+
+def missing_packages(modules: tuple[str, ...]) -> list[str]:
+    return [m for m in modules if not _importable(m)]
+
+
 class Vision:
     """The real models, created once and kept (CLAUDE.md: never reload per frame or request).
 
@@ -126,14 +139,28 @@ class Vision:
         self.lock = threading.Lock()
 
     @property
+    def missing_packages(self) -> list[str]:
+        """Python packages the detector and tracking need that aren't installed (empty when a test model
+        is swapped in). The weights alone aren't enough: PyTorch and friends must be installed too."""
+        if self._detector is not None:
+            return []
+        tracking = ("supervision", "trackers") if self.cfg is not None and self.cfg.track.enabled else ()
+        return missing_packages(("torch", "rfdetr", *tracking))
+
+    @property
     def installed(self) -> bool:
-        """True when the fish detector's weights are on disk (otherwise: demo mode)."""
-        return self._detector is not None or (self.cfg is not None and self.cfg.detect.checkpoint.is_file())
+        """True when the fish detector's weights are on disk AND the packages to run them are installed
+        (otherwise: demo mode)."""
+        if self._detector is not None:
+            return True
+        return self.cfg is not None and self.cfg.detect.checkpoint.is_file() and not self.missing_packages
 
     @property
     def species_installed(self) -> bool:
-        return self._encoder is not None or (self.cfg is not None and (self.cfg.species.model_dir /
-                                                                        "open_clip_config.json").is_file())
+        if self._encoder is not None:
+            return True
+        return (self.cfg is not None and (self.cfg.species.model_dir / "open_clip_config.json").is_file()
+                and not missing_packages(("torch", "open_clip")))
 
     @property
     def encoder_name(self) -> str:
@@ -160,7 +187,12 @@ class Vision:
     def status(self, references: int) -> ModelStatus:
         mode = device.mode()
         if not self.installed:
-            why = self.error or "The fish detector files aren't in the models folder yet"
+            weights = self.cfg is not None and self.cfg.detect.checkpoint.is_file()
+            missing = self.missing_packages
+            why = (self.error
+                   or (f"The model files are here, but the software that runs them isn't installed"
+                       f" ({', '.join(missing)}; developers: pip install -r requirements.txt)" if weights and missing
+                       else "The fish detector files aren't in the models folder yet"))
             return ModelStatus(ready=True, demo=True, name="Demo mode", device=mode, gpu=device.gpu_name() or "",
                                message=f"{why}, so results are sample data.")
         species = self.encoder_name if self.species_installed else ""
