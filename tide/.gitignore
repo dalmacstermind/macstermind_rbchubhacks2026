@@ -7,9 +7,9 @@ backend/.venv/
 backend/build/
 backend/dist/
 backend/data/
-backend/models/
+backend/models/*/REVISION
 __pycache__/
 *.pyc
 .pytest_cache/
-# Model files are large: share them separately or with Git LFS
+# Model weights under backend/models go through Git LFS (see /.gitattributes)
 *.onnx

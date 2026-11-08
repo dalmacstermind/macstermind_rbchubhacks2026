@@ -20,24 +20,28 @@ a random password (token), shows "Starting TIDE…" until it answers, and stops 
 | `app/` | UI | Electron + React + Vite. Screens are in `app/src/renderer/src/App.tsx` |
 | `backend/` | Integration | FastAPI. The pipeline to fill in is `backend/tide_api/pipeline.py` |
 | `API.md` | Everyone | The contract between the two. **Agree changes here first.** |
-| `backend/models/` (create it) | Model | `fish.onnx` + `labels.json` once trained |
+| `backend/models/` | Model | The detector (CFD) and BioCLIP 2 weights, in Git LFS. Later: `fish.onnx` + `labels.json` once trained |
 
 **What the app does:** pick who's working → add footage or a whole folder → count → report →
 check the fish → export to Excel or PDF. Also: blind QC by a second person, trends over time,
 an editable species list (fish and invertebrates), settings, light/dark mode, and keyboard
 shortcuts (press `?`).
 
-**The back end runs real models when their files are installed** (`backend/models/`, git-ignored):
+**The back end runs real models when their files are installed** (`backend/models/`, stored with Git LFS):
 the Community Fish Detector (RF-DETR) finds fish, ByteTrack follows each fish across pictures, and
 BioCLIP 2 suggests species by comparing each fish with the **reference pictures** staff add to the
 species list. Every picture also gets a clarity index. Without the model files the app runs in
-**Demo mode** with sample pictures and says so. To get the model files (developers, once):
+**Demo mode** with sample pictures and says so. The model files (about 1.8 GB) are in the repo
+through [Git LFS](https://git-lfs.com): install it before cloning, or fetch them afterwards:
 
 ```sh
+git lfs install
+git lfs pull                         # downloads the weights into backend/models
 cd backend
-python -m tide.fetch_models          # downloads pinned, checksummed weights into backend/models
-python -m tide.fetch_models --verify # checks them
+python -m tide.fetch_models --verify # checks them against the pinned SHA-256
 ```
+
+Without Git LFS, `python -m tide.fetch_models` downloads the same pinned files from their sources.
 
 Tests of the real models: `pytest -m models` (the default `pytest` run uses small test models).
 
