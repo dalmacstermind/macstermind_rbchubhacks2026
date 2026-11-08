@@ -1,0 +1,44 @@
+# Builds the Windows installer on GitHub's Windows machines, so you can develop on a Mac.
+# Push to GitHub → Actions tab → "Build Windows installer" → Run workflow,
+# then download TIDE-Setup-x.y.z.exe from the finished run's "Artifacts".
+name: Build Windows installer
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true # in case fish.onnx is stored with Git LFS
+
+      # 1. Back end → backend/dist/tide-api/tide-api.exe
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build back end
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest -q
+          pyinstaller tide-api.spec --noconfirm
+
+      # 2. App + installer (bundles the back end from step 1)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build app and installer
+        working-directory: app
+        run: |
+          npm ci
+          npm test
+          npm run dist:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TIDE-Windows-installer
+          path: app/release/*.exe

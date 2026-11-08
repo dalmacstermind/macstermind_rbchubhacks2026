@@ -1,0 +1,148 @@
+/*
+ * Start-up splash: an underwater scene shown while the back end starts.
+ * Everything here is plain CSS + inline SVG (no libraries, nothing loaded from the internet).
+ * With "Reduce motion" turned on in the computer's settings, the scene is shown still.
+ */
+
+.tide-splash {
+  --deep: oklch(0.13 0.04 252);
+  --mid: oklch(0.3 0.08 232);
+  --surface: oklch(0.6 0.11 205);
+  --foam: oklch(0.97 0.02 200);
+  --detect: oklch(0.82 0.13 185);
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: var(--foam);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--mid) 42%, var(--deep) 100%);
+  transition: opacity 600ms ease, transform 600ms ease;
+}
+.tide-splash.is-leaving {
+  opacity: 0;
+  transform: scale(1.04);
+}
+
+/* Sunlight coming down through the water */
+.tide-ray {
+  position: absolute;
+  top: -10vh;
+  width: 14vw;
+  height: 120vh;
+  transform-origin: top center;
+  background: linear-gradient(180deg, oklch(1 0 0 / 0.22), transparent 70%);
+  filter: blur(10px);
+  mix-blend-mode: screen;
+  animation: tide-sway 7s ease-in-out infinite alternate;
+}
+
+/* Bubbles drifting up */
+.tide-bubble {
+  position: absolute;
+  bottom: -40px;
+  border-radius: 9999px;
+  border: 1px solid oklch(1 0 0 / 0.55);
+  background: radial-gradient(circle at 30% 30%, oklch(1 0 0 / 0.6), oklch(1 0 0 / 0.05) 60%);
+  animation: tide-bubble linear infinite;
+}
+
+/* Fish crossing the scene */
+.tide-fish {
+  position: absolute;
+  left: 0;
+  animation: tide-swim linear infinite;
+}
+.tide-fish svg {
+  animation: tide-bob 1.6s ease-in-out infinite alternate;
+}
+.tide-box {
+  stroke-dasharray: 260;
+  stroke-dashoffset: 260;
+  animation: tide-draw 700ms ease-out 1.4s forwards;
+}
+.tide-fade {
+  opacity: 0;
+  animation: tide-fade-in 600ms ease-out forwards;
+}
+
+/* The wordmark: each letter rises up through the water and comes into focus */
+.tide-letter {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(45%);
+  filter: blur(8px);
+  animation: tide-rise 1000ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  text-shadow: 0 8px 40px oklch(0.8 0.12 200 / 0.55);
+}
+.tide-underline {
+  stroke-dasharray: 520;
+  stroke-dashoffset: 520;
+  animation: tide-draw 1100ms ease-out 900ms forwards;
+}
+
+/* Waves rolling along the sea floor (the path repeats, so moving it by half loops seamlessly) */
+.tide-wave {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  animation: tide-roll linear infinite;
+}
+
+/* Sonar ping next to the status text */
+.tide-ping {
+  animation: tide-ping 1.6s ease-out infinite;
+}
+
+/* The first app screen fades in after the splash */
+.tide-enter {
+  animation: tide-fade-in 500ms ease-out;
+}
+
+@keyframes tide-sway {
+  from { transform: rotate(-9deg); }
+  to { transform: rotate(7deg); }
+}
+@keyframes tide-bubble {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: 1; }
+  50% { transform: translate(12px, -55vh); }
+  100% { transform: translate(-8px, -115vh); opacity: 0; }
+}
+@keyframes tide-swim {
+  from { transform: translateX(-12vw); }
+  to { transform: translateX(112vw); }
+}
+@keyframes tide-bob {
+  from { transform: translateY(-4px) rotate(-2deg); }
+  to { transform: translateY(4px) rotate(2deg); }
+}
+@keyframes tide-rise {
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes tide-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes tide-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tide-roll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes tide-ping {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tide-splash *,
+  .tide-enter {
+    animation: none !important;
+  }
+  .tide-letter { opacity: 1; transform: none; filter: none; }
+  .tide-underline, .tide-box { stroke-dashoffset: 0; }
+  .tide-fade { opacity: 1; }
+  .tide-bubble, .tide-fish { display: none; }
+  .tide-splash { transition: none; }
+}

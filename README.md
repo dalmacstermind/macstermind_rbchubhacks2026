@@ -1,10 +1,10 @@
-# FinCount
+# TIDE
 
 Offline fish detection, identification and counting for Nova Scotia underwater survey video.
-FinCount installs on Windows as **one app**. Inside it are two parts that run on the same computer:
+TIDE installs on Windows as **one app**. Inside it are two parts that run on the same computer:
 
 ```
- FinCount.exe (Electron)                                   fincount-api.exe (FastAPI)
+ TIDE.exe (Electron)                                   tide-api.exe (FastAPI)
  ┌───────────────────────────┐   HTTP on 127.0.0.1 only    ┌─────────────────────────────┐
  │ React screens   app/      │ ─────────────────────────▶  │ backend/                    │
  │ starts & stops the back   │   (never leaves the PC,     │  video → pictures → model   │
@@ -12,13 +12,13 @@ FinCount installs on Windows as **one app**. Inside it are two parts that run on
  └───────────────────────────┘                             └─────────────────────────────┘
 ```
 
-When staff open FinCount, Electron starts the back end in the background on a free port with
-a random password (token), shows "Starting FinCount…" until it answers, and stops it on close.
+When staff open TIDE, Electron starts the back end in the background on a free port with
+a random password (token), shows "Starting TIDE…" until it answers, and stops it on close.
 
 | Folder | Who works on it | What's there |
 | --- | --- | --- |
 | `app/` | UI | Electron + React + Vite. Screens are in `app/src/renderer/src/App.tsx` |
-| `backend/` | Integration | FastAPI. The pipeline to fill in is `backend/fincount_api/pipeline.py` |
+| `backend/` | Integration | FastAPI. The pipeline to fill in is `backend/tide_api/pipeline.py` |
 | `API.md` | Everyone | The contract between the two. **Agree changes here first.** |
 | `backend/models/` (create it) | Model | `fish.onnx` + `labels.json` once trained |
 
@@ -35,8 +35,8 @@ species list. Every picture also gets a clarity index. Without the model files t
 
 ```sh
 cd backend
-python -m aquavision.fetch_models          # downloads pinned, checksummed weights into backend/models
-python -m aquavision.fetch_models --verify # checks them
+python -m tide.fetch_models          # downloads pinned, checksummed weights into backend/models
+python -m tide.fetch_models --verify # checks them
 ```
 
 Tests of the real models: `pytest -m models` (the default `pytest` run uses small test models).
@@ -50,7 +50,7 @@ compare the AI with hand counts of the same points (Coastal Action's past spread
 CSV with columns `video, point, total_fish`): in the app, **Report → Compare with hand counts…**, or
 
 ```sh
-python -m aquavision.evaluate --results results.json --human hand_counts.csv
+python -m tide.evaluate --results results.json --human hand_counts.csv
 ```
 
 (`results.json` is saved from `GET /surveys/{id}/results`). It reports per-point differences, the share
@@ -120,7 +120,7 @@ cd app
 npm run dev
 ```
 
-The FinCount window opens and shows "Starting FinCount…" for a moment. The app starts the back end
+The TIDE window opens and shows "Starting TIDE…" for a moment. The app starts the back end
 for you, using `backend/.venv`, so you don't need to activate anything. Screens reload as soon as
 you save a change.
 
@@ -130,7 +130,7 @@ instead of starting its own:
 ```sh
 cd backend
 source .venv/bin/activate        # Windows: .venv\Scripts\Activate.ps1
-uvicorn fincount_api.main:app --port 8765 --reload
+uvicorn tide_api.main:app --port 8765 --reload
 ```
 
 Then open **http://127.0.0.1:8765/docs** to try every endpoint in the browser.
@@ -144,8 +144,8 @@ Then open **http://127.0.0.1:8765/docs** to try every endpoint in the browser.
 | `pytest` (with `.venv` active) | `backend/` | API tests (species, analysis, checks, people, blind QC, upgrades, token) |
 
 Where data goes: when the app starts the back end in development, it uses your app data folder
-under `FinCount/dev-data/` (Mac: `~/Library/Application Support/FinCount/dev-data`). When you start
-uvicorn yourself, it uses `backend/data/`. The installed app uses `%APPDATA%\FinCount\` on Windows.
+under `TIDE/dev-data/` (Mac: `~/Library/Application Support/TIDE/dev-data`). When you start
+uvicorn yourself, it uses `backend/data/`. The installed app uses `%APPDATA%\TIDE\` on Windows.
 To start fresh, quit the app and delete that folder.
 
 ### Troubleshooting
@@ -160,18 +160,18 @@ node node_modules/electron/install.js
 If that doesn't help, check `npm config get ignore-scripts`. If it says `true`, run
 `npm config set ignore-scripts false`, delete `node_modules`, and run `npm install` again.
 
-**"FinCount couldn't start" with `No module named 'uvicorn'`** (or `fastapi`)
+**"TIDE couldn't start" with `No module named 'uvicorn'`** (or `fastapi`)
 The back end's packages aren't installed where the app looks for them. Do step 2 again, making sure
 the folder is `backend/.venv`. A virtual environment anywhere else, or packages installed into your
 system Python, won't be found.
 
-**"FinCount couldn't start" with `Couldn't start the back end (python3)`**
+**"TIDE couldn't start" with `Couldn't start the back end (python3)`**
 There's no `backend/.venv` and Python isn't on your PATH. Do step 2.
 
 **`[Errno 48] Address already in use`** (Windows: `10048`)
 Something else is using port 8765, usually a back end you started yourself and forgot. Stop it
 (Ctrl+C in its terminal), or start the app on another port:
-`FINCOUNT_API_URL=http://127.0.0.1:8766 npm run dev`.
+`TIDE_API_URL=http://127.0.0.1:8766 npm run dev`.
 
 **`pip install` fails**
 Check `python3 --version` (Windows: `py --version`) is 3.11 or newer. If you upgraded Python,
@@ -185,7 +185,7 @@ Look at the terminal where you ran `npm run dev` for the error, then quit with C
 Staff use Windows, so the installer is built on Windows: the back end with PyInstaller, then the app with electron-builder.
 
 **Easiest: GitHub Actions (no Windows PC needed).** Push to GitHub, open
-**Actions → Build Windows installer → Run workflow**, and download `FinCount-Setup-0.1.0.exe`
+**Actions → Build Windows installer → Run workflow**, and download `TIDE-Setup-0.1.0.exe`
 from the finished run.
 
 **Or on a Windows PC:**
@@ -193,7 +193,7 @@ from the finished run.
 ```bat
 cd backend
 .venv\Scripts\activate
-pyinstaller fincount-api.spec --noconfirm
+pyinstaller tide-api.spec --noconfirm
 cd ..\app
 npm run dist:win
 ```
@@ -202,7 +202,7 @@ The installer appears in `app\release\`. It's unsigned, so Windows shows **"Wind
 your PC"**; click **More info → Run anyway**.
 
 **Install it on a real Windows laptop and run one survey before the demo.**
-If Windows Defender complains about `fincount-api.exe` (it happens with PyInstaller), that's the
+If Windows Defender complains about `tide-api.exe` (it happens with PyInstaller), that's the
 thing to sort out early.
 
 ## Notes for the integration team
@@ -212,7 +212,7 @@ thing to sort out early.
 - The runtime is **PyTorch (CUDA build)**, per CLAUDE.md; it also runs on CPU. The packaged back end
   is several GB with the models, so check the NSIS size limit early (CLAUDE.md, Packaging).
 - Ship the models next to the back end: `models.dir` in `config/app.yaml` is relative to the config
-  folder, so put `models/` beside `config/` (or add it to `datas` in `fincount-api.spec`).
+  folder, so put `models/` beside `config/` (or add it to `datas` in `tide-api.spec`).
 - The detector is the **Community Fish Detector (RF-DETR)** until a fine-tuned YOLOX exists. Its licence
   needs approval: see `docs/LICENCES.md`.
 - Error messages in `HTTPException` and `Job.error` are shown to staff, so keep them plain English.
