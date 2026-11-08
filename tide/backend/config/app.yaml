@@ -6,9 +6,10 @@ frames:
   seek_preroll_s: 1.0
 
 clips:
-  # Bundled FFmpeg binary, relative to this config folder (or an absolute path).
-  # null = no FFmpeg: clips are written with OpenCV instead (they may not play in the app).
-  ffmpeg_path: null
+  # "bundled" = the FFmpeg inside the imageio-ffmpeg Python package. Or a path to an FFmpeg program,
+  # relative to this config folder or absolute.
+  # null = no FFmpeg: clips are written with OpenCV instead (they won't play in the app).
+  ffmpeg_path: bundled
   # libx264 makes clips that play in the app's video player (H.264). Needs a GPL FFmpeg build;
   # see docs/LICENCES.md.
   ffmpeg_codec: libx264

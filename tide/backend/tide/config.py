@@ -196,13 +196,28 @@ def protocol_to_dict(cfg: ProtocolConfig) -> dict[str, Any]:
     }
 
 
+BUNDLED_FFMPEG = "bundled"
+
+
+def _bundled_ffmpeg() -> Path | None:
+    """The FFmpeg inside the imageio-ffmpeg package, or None if it's missing (clips then use OpenCV)."""
+    try:
+        import imageio_ffmpeg  # imported here so reading the settings stays quick
+
+        return Path(imageio_ffmpeg.get_ffmpeg_exe())
+    except (ImportError, RuntimeError):
+        return None
+
+
 def load_app_config(path: Path | None = None) -> AppConfig:
     path = path or default_config_dir() / "app.yaml"
     data = _read(path)
     frames, clips = _section(data, "frames", path), _section(data, "clips", path)
     ffmpeg = clips.get("ffmpeg_path")
     ffmpeg_path = None
-    if ffmpeg:
+    if ffmpeg == BUNDLED_FFMPEG:
+        ffmpeg_path = _bundled_ffmpeg()
+    elif ffmpeg:
         ffmpeg_path = Path(ffmpeg)
         if not ffmpeg_path.is_absolute():
             ffmpeg_path = path.parent / ffmpeg_path  # relative paths are relative to the config folder
