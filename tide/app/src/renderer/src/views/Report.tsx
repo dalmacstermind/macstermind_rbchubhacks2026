@@ -119,10 +119,10 @@ export function ReportView({
         />
       )}
       {editing && <EditSurvey data={data} onClose={() => setEditing(false)} onSaved={onChanged} />}
-      <Header eyebrow={`Step 2 of 4 · ${survey.site}`} title="Survey report">
+      <Header eyebrow={`Step 2 of 4 · ${survey.site}`} title="Counting">
         <MatchAgainButton surveyId={survey.id} onDone={onChanged} />
         <button onClick={() => onReview("all")} className={btnGhost}>
-          Check the fish
+          Approve Findings
         </button>
         <ExportMenu
           onExcel={() => (open.length ? setChecking(true) : void exportXlsx())}
@@ -221,7 +221,7 @@ export function ReportView({
             {s.rows.length === 0 ? (
               <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground">
                 {s.toReview > 0
-                  ? "No fish counted yet. Check the possible fish above to add them to the report."
+                  ? "No fish counted yet. Check the possible fish above to add them to the counts."
                   : survey.videosToCount > 0
                     ? `No fish so far, but ${plural(survey.videosToCount, "video")} still ${survey.videosToCount === 1 ? "hasn't" : "haven't"} been counted.`
                     : frames.length === 0
@@ -488,7 +488,7 @@ export function EditSurvey({ data, onClose, onSaved }: { data: SurveyData; onClo
             onChange={(e) => setSure(Number(e.target.value))}
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Less sure finds wait for a person in "Check the fish". Counts update straight away.
+            Less sure finds wait for a person in "Approve Findings". Counts update straight away.
           </p>
         </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}

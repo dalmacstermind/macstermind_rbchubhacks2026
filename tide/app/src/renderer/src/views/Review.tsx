@@ -1,4 +1,4 @@
-// "Check the fish": confirm, correct or reject what TIDE found, one picture at a time.
+// "Approve Findings": confirm, correct or reject what TIDE found, one picture at a time.
 import { useEffect, useMemo, useState } from "react";
 import type { Person } from "../../../shared/api";
 import {
@@ -125,9 +125,9 @@ export function ReviewView({
   if (!frame) {
     return (
       <>
-        <Header eyebrow="Step 3 of 4" title="Check the fish">
+        <Header eyebrow="Step 3 of 4" title="Approve Findings">
           <button onClick={onBack} className={btnPrimary}>
-            Back to report
+            Back to Counting
           </button>
         </Header>
         <div className="p-10 text-muted-foreground">
@@ -168,7 +168,7 @@ export function ReviewView({
           }}
         />
       )}
-      <Header eyebrow="Step 3 of 4" title="Check the fish">
+      <Header eyebrow="Step 3 of 4" title="Approve Findings">
         <div className="mr-4 text-sm text-muted-foreground">
           Fish counted: <span className="font-display text-lg font-semibold text-foreground">{total}</span>
           {toReview > 0 && (
@@ -179,7 +179,7 @@ export function ReviewView({
           )}
         </div>
         <button onClick={onBack} className={btnPrimary}>
-          Done, back to report
+          Done, back to Counting
         </button>
       </Header>
       <div className="grid grid-cols-1 gap-6 px-10 py-6 lg:grid-cols-[1fr_340px]">
@@ -503,7 +503,7 @@ export function ReviewView({
                 <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-muted-foreground">
                   <li>Click a box on the picture.</li>
                   <li>Confirm the species, pick the right one, or mark it as not a fish.</li>
-                  <li>The report updates as you go, and your checks are saved straight away.</li>
+                  <li>The Counting page updates as you go, and your checks are saved straight away.</li>
                 </ol>
                 <p className="mt-3 text-xs text-muted-foreground">
                   Press <Kbd>?</Kbd> for keyboard shortcuts.

@@ -67,7 +67,7 @@ afterEach(() => {
   host.remove();
 });
 
-describe("Label unknown fish", () => {
+describe("Label Unknown Fish", () => {
   it("unticks 'Use as reference picture' after each label", async () => {
     await show();
     act(() => host.querySelector<HTMLElement>('img[alt="Fish to label"]')!.closest("button")!.click());

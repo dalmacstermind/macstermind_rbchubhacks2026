@@ -202,7 +202,7 @@ Every screen after "Who's working?" has the same frame (`App.tsx`):
 
 ```
 ┌ Top bar: TIDE logo ··························· mode · ? Shortcuts · Light/Dark · person · Offline ┐
-├ Tools column ─────────┬ Step tabs: 1 Counting | 2 Report | 3 Check the fish | 4 Label unknown fish ┤
+├ Tools column ─────────┬ Step tabs: 1 Processing | 2 Counting | 3 Approve Findings | 4 Label Unknown Fish ┤
 │ [+ Start a new survey]│                                                                          │
 │ TOOLS                 │                                                                          │
 │ Surveys               │                                                                          │
@@ -228,9 +228,9 @@ Every screen after "Who's working?" has the same frame (`App.tsx`):
    no possible fish below the certainty level left to confirm or dismiss, and no
    "Unknown/Unable to ID due to visibility" fish left to label. Blind QC does not decide it.
 3. **Step tabs** (`components/StepTabs.tsx`), one horizontal row of four tabs above the page, in
-   this order: **Counting | Report | Check the fish | Label unknown fish**, numbered 1–4. Starting
-   a survey is not a step (see the Tools column). "Check the fish" carries the badge of fish still
-   to check or name. Counting is a progress step and never clickable; Report, Check the fish and
+   this order: **Processing | Counting | Approve Findings | Label Unknown Fish**, numbered 1–4. Starting
+   a survey is not a step (see the Tools column). "Approve Findings" carries the badge of fish still
+   to check or name. Processing is a progress step and never clickable; Counting, Approve Findings and
    Label need an open survey; everything except the current step is locked while a survey is being
    counted.
 4. **The current page** (`<main>`), to the right of the Tools column, scrolling on its own.
