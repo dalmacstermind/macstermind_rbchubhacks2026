@@ -379,6 +379,63 @@ class SurveyResults(Model):
     visibility_categories: list[str]
 
 
+class TrendPoint(Model):
+    """One point on the Trends graphs: one counted video."""
+    video_id: int
+    survey_id: int
+    survey_site: str
+    file_name: str
+    label: str
+    recorded_at: str
+    transect: str
+    stat: str
+    species_found: int
+    mean_count: Optional[float] = None
+    clarity_index: Optional[float] = None  # video median
+    clarity_min: Optional[float] = None
+    clarity_max: Optional[float] = None
+    clarity_trend: Optional[str] = None
+    visibility: Optional[str] = None  # confirmed or suggested category
+    reviewed: bool
+    short_window: bool  # shorter than the protocol window: not comparable with full windows
+    imported: bool = False
+
+
+class TrendGroup(Model):
+    """All the plotted videos of one date (Group by survey date)."""
+    label: str
+    recorded_at: str
+    videos: int
+    clarity_mean: Optional[float] = None
+    clarity_min: Optional[float] = None
+    clarity_max: Optional[float] = None
+    species_mean: float
+    species_min: int
+    species_max: int
+    mean_count: Optional[float] = None
+
+
+class NotPlottedVideo(Model):
+    """A video that isn't on the Trends graphs, and why (shown to staff as-is)."""
+    video_id: int
+    survey_id: int
+    survey_site: str
+    file_name: str
+    transect: str
+    stat: str
+    recorded_at: str
+    reason: Literal["too_short", "not_confirmed", "counting", "not_counted", "no_date", "not_reviewed"]
+    explanation: str
+
+
+class TrendsOut(Model):
+    points: list[TrendPoint]
+    groups: list[TrendGroup]  # filled when grouping by survey date
+    not_plotted: list[NotPlottedVideo]
+    transects: list[str]
+    stats: list[str]
+
+
 class VideoDetailsPatch(Model):
     """Recording details (the window itself is confirmed with PATCH /videos/{id})."""
     recorded_at: Optional[str] = None  # YYYY-MM-DD

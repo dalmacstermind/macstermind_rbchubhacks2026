@@ -46,6 +46,8 @@ export function ReportView({
   onQc,
   onChanged,
   onNewSurvey,
+  focusVideoId,
+  onVideoFocused,
 }: {
   data: SurveyData;
   summary: Summary;
@@ -56,6 +58,8 @@ export function ReportView({
   onQc: () => void;
   onChanged: () => void;
   onNewSurvey: () => void;
+  focusVideoId: number | null; // scroll to this video's results (opened from Trends)
+  onVideoFocused: () => void;
 }) {
   const { survey, frames } = data;
   const [saved, setSaved] = useState<string | null>(null);
@@ -169,6 +173,8 @@ export function ReportView({
           person={person}
           onCountingDone={onChanged}
           onCountingChange={setCounting}
+          focusVideoId={focusVideoId}
+          onVideoFocused={onVideoFocused}
           version={frames.reduce((n, f) => n + f.detections.filter((d) => d.verified).length, frames.length)}
         />
 

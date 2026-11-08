@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse
 
 from tide.config import load_app_config
 from tide.protocol import WindowError, validate_window
+from tide.trends import TrendFilters
 
 from . import __version__
 from .db import Database, move_old_database
@@ -30,7 +31,7 @@ from .schemas import (AnalysisRequest, CountStatus, DetectionPatch, EvaluationIn
                       LabelResult, ModelStatus, Person, PointPatch, ProtocolCheck, ProtocolSettings,
                       ProtocolSettingsState, QcCountIn, QcData, Reference, ReferenceFromDetection, ReferencesIn,
                       Reidentified, Species, SpeciesIn, SpeciesPatch, Storage, SurveyData, SurveyInfo, SurveyPatch,
-                      SurveyResults, Unknowns, Video, VideoDetailsPatch, VideoWindowPatch)
+                      SurveyResults, TrendsOut, Unknowns, Video, VideoDetailsPatch, VideoWindowPatch)
 from .settings import ProtocolSettingsStore, SettingsError, apply_settings, points_per_window
 
 DATA_DIR = Path(os.environ.get("TIDE_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
@@ -458,6 +459,14 @@ def survey_results_route(survey_id: int):
     """Videos with per-point counts, MeanCount and species richness; per-image counts. Recalculated each time."""
     info = _survey_or_404(survey_id)
     return survey_results.build_results(db, survey_id, info.threshold)
+
+
+@app.get("/trends", response_model=TrendsOut, tags=["results"])
+def get_trends(transect: str = "", stat: str = "", date_from: str = Query("", alias="from"),
+               date_to: str = Query("", alias="to"), reviewed_only: bool = Query(True, alias="reviewedOnly"),
+               group_by_survey: bool = Query(False, alias="groupBySurvey")):
+    """The Trends page: one point per counted video, and every other video with the reason it isn't plotted."""
+    return survey_results.trends(db, TrendFilters(transect, stat, date_from, date_to, reviewed_only), group_by_survey)
 
 
 @app.patch("/videos/{video_id}/details", status_code=204, tags=["results"])

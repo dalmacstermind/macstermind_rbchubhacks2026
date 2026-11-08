@@ -185,6 +185,7 @@ class Database(ProtocolStore):
                 if column in cols:
                     self.conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
             self.conn.commit()
+        self.remove_file_name_dates()
         # CLAUDE.md: "Unidentified fish" is called "Unknown/Unable to ID due to visibility" (older databases).
         self.run("UPDATE species SET common = ? WHERE id = 'unknown' AND common = 'Unidentified fish'",
                  DEFAULT_SPECIES[-1][1])

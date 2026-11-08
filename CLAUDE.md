@@ -424,7 +424,8 @@ After each video is processed, it adds one point to two **line graphs** stacked 
 Rules:
 
 - **X-axis:** videos in recording-date order. Read the date from the folder path (e.g.
-  `Fall 2025/August 20_2025/T1/STAT 1/...`) or file metadata; the user can correct it. Videos
+  `Fall 2025/August 20_2025/T1/STAT 1/...`) or file metadata, **never from the file name** (it is
+  often when a clip was saved or exported); the user can correct it. Videos
   without a date are listed separately, not plotted at a guessed date.
 - Label points with date, Transect and STAT. Tooltip: clarity index, suggested/confirmed
   visibility category, species found, MeanCount, review status.
@@ -439,10 +440,9 @@ Rules:
   imported.
 - Chart library: **Recharts** (MIT), already used by the app and bundled by Vite (offline).
 - Data comes from `GET /trends`; the chart component does no calculations of its own.
-- The current Trends screen differs and must change: one point per **video** (not per
-  survey), filters by **Transect/STAT** (not site), "Reviewed only" **on** by default, a
-  "Group by survey date" toggle, the second chart fixed to species found (no invasive metric), and
-  the video **median** clarity index (not the mean).
+- Videos that weren't counted are never plotted (a 0 would look like a result). Every video that
+  isn't a point is listed under the graphs with the reason (`notPlotted`).
+- Short windows are plotted as hollow points and marked as not comparable with full windows.
 
 ## Labelling unknown fish (after processing)
 
@@ -569,7 +569,7 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | New | `GET /surveys/{id}/unknowns` | Unlabelled fish grouped by track, with crop, source and top 3 suggestions |
 | New | `POST /labels` · `DELETE /labels/{id}` | Apply a label to one or more tracks (returns updated counts); undo |
 | Change | `GET /surveys/{id}/qc` · `POST /surveys/{id}/qc` | Blind QC on **points** (not pictures); returns absolute and % difference. Done: sample size, max difference and target come from the survey's protocol snapshot (`percent` is optional) |
-| New | `GET /trends` | Per-video summaries; query: `transect`, `stat`, `from`, `to`, `reviewedOnly`, `groupBySurvey` |
+| Done | `GET /trends` | Per-video summaries, and every other video with the reason it isn't plotted; query: `transect`, `stat`, `from`, `to`, `reviewedOnly`, `groupBySurvey` |
 | Done | `GET /settings/protocol` · `PUT /settings/protocol` · `DELETE /settings/protocol` | Read, save (`?check=true`: validate only, returns points per window or per-field errors), reset to defaults. Save/reset need `X-TIDE-User` (on the people list). Applies to new processing only |
 | New | `POST /benchmark` · `GET /benchmark` | Run and read the hardware benchmark |
 | New (optional) | `GET /surveys/{id}/labelled-crops.zip` | Local export of labelled crops |
@@ -664,6 +664,7 @@ class VideoSummary:
     visibility: str | None          # confirmed or suggested category
     reviewed: bool
     imported: bool                  # True for history imported from past spreadsheets
+    # Also: video and survey ids, survey site, file name, display label, short_window
 
 # count.py: one row per image (never part of MeanCount)
 @dataclass

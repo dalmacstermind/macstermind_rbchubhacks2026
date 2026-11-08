@@ -52,6 +52,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [finished, setFinished] = useState<FileStatus[] | null>(null);
   const [reviewMode, setReviewMode] = useState<ReviewMode>("all");
+  const [focusVideo, setFocusVideo] = useState<number | null>(null); // a video to scroll to on the report
   const [qcSurvey, setQcSurvey] = useState<number | null>(null);
   const [shortcuts, setShortcuts] = useState(false);
   const [overview, reloadOverview] = useOverview(species);
@@ -82,7 +83,7 @@ export default function App() {
   const qc = useMemo(() => (data && qcRaw ? qcState(data, qcRaw, species) : null), [data, qcRaw, species]);
 
   const go = (p: Page) => {
-    if (p === "upload" || p === "qc" || p === "trends") void reloadOverview();
+    if (p === "upload" || p === "qc") void reloadOverview();
     if (p === "report" && data) void api.qc.get(data.survey.id).then(setQcRaw);
     if (p === "qc") setQcSurvey(null);
     setPage(p);
@@ -282,6 +283,8 @@ export default function App() {
                     }}
                     onChanged={() => void openSurvey(data.survey.id)}
                     onNewSurvey={newSurvey}
+                    focusVideoId={focusVideo}
+                    onVideoFocused={() => setFocusVideo(null)}
                   />
                 </>
               )}
@@ -317,10 +320,8 @@ export default function App() {
               )}
               {page === "trends" && (
                 <TrendsView
-                  overview={overview}
                   theme={theme}
-                  onOpen={(id) => void openSurvey(id)}
-                  onChanged={() => void reloadOverview()}
+                  onOpen={(surveyId, videoId) => void openSurvey(surveyId).then(() => setFocusVideo(videoId))}
                 />
               )}
               {page === "label" && data && (

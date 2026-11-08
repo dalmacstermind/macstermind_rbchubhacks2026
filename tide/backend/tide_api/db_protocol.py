@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import uuid
 
+from tide.ingest import date_in_text, recorded_date
+
 PROTOCOL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS points (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,11 +62,25 @@ PROTOCOL_MIGRATIONS = [
 ]
 
 
+# PRAGMA user_version once the recording dates read from file names have been removed.
+FILE_NAME_DATES_REMOVED = 1
+
 INTERRUPTED = "Counting was interrupted because TIDE closed. Nothing was saved: count again to start over."
 
 
 class ProtocolStore:
     """Methods for videos, points and labels (uses Database.run/all/one)."""
+
+    def remove_file_name_dates(self):
+        """Once per database: recording dates used to be read from file names too, which is often when a clip
+        was saved or exported. Those are blanked, so the survey's date applies until staff enter one."""
+        if self.one("PRAGMA user_version")["user_version"] >= FILE_NAME_DATES_REMOVED:
+            return
+        for v in self.all("SELECT id, file_name, path, recorded_at FROM videos WHERE recorded_at <> ''"):
+            in_name = date_in_text(v["file_name"])
+            if in_name and in_name.isoformat() == v["recorded_at"] and recorded_date(v["path"]) is None:
+                self.run("UPDATE videos SET recorded_at = '' WHERE id = ?", v["id"])
+        self.run(f"PRAGMA user_version = {FILE_NAME_DATES_REMOVED}")
 
     # ── videos and points ──
 

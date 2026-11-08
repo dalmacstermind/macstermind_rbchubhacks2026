@@ -85,6 +85,7 @@ def test_transect_stat_and_date_from_paths():
     assert transect_stat("clip.mp4") == (None, None)
     assert str(recorded_date("Fall 2025/August 20_2025/T1/STAT 1/x.mp4")) == "2025-08-20"
     assert recorded_date("survey/clip.mp4") is None
+    assert recorded_date("survey/clip-2025-08-20.mp4") is None  # never from the file name
 
 
 # ── evaluation ──

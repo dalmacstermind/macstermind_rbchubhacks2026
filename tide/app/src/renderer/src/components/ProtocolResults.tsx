@@ -18,6 +18,8 @@ export function ProtocolResults({
   version,
   onCountingDone,
   onCountingChange,
+  focusVideoId,
+  onVideoFocused,
 }: {
   surveyId: number;
   species: Species[];
@@ -25,6 +27,8 @@ export function ProtocolResults({
   version: number; // changes when something else on the page changed the survey (labels, checks)
   onCountingDone?: () => void; // reload the rest of the report (its pictures) once a video has been counted
   onCountingChange?: (progress: SurveyCountProgress | null) => void; // null: nothing waiting or being counted
+  focusVideoId?: number | null; // scroll to this video once the results have loaded
+  onVideoFocused?: () => void;
 }) {
   const [results, setResults] = useState<SurveyResults | null>(null);
   const [error, setError] = useState("");
@@ -56,6 +60,13 @@ export function ProtocolResults({
     window.addEventListener("focus", load);
     return () => window.removeEventListener("focus", load);
   }, [load]);
+
+  // Opened from a point on Trends: once the results are on the page, scroll to that video.
+  useEffect(() => {
+    if (focusVideoId === null || focusVideoId === undefined || !results) return;
+    document.getElementById(`video-${focusVideoId}`)?.scrollIntoView({ behavior: "smooth" });
+    onVideoFocused?.();
+  }, [focusVideoId, results, onVideoFocused]);
 
   // When counting finishes, the report's pictures (Check the fish, picture-by-picture counts) are new too.
   const progress = countProgress(results);

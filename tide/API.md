@@ -148,6 +148,19 @@ Its points are spread across the clip, about `subsample.short_window_interval_s`
 middle of its slice, and never more than a full window has (15).
 With `allow_short_videos: false` they are flagged `tooShort` and not processed.
 
+### Trends
+
+| Method | Path | Query | Returns |
+| --- | --- | --- | --- |
+| GET | `/trends` | `transect`, `stat`, `from`, `to` (YYYY-MM-DD), `reviewedOnly` (default `true`), `groupBySurvey` (default `false`) | `{points, groups, notPlotted, transects, stats}` |
+
+One point per counted video, in recording-date order. A video's date is its `recordedAt`, or else its
+survey's date; dates are read from folders, never file names, and staff can correct them with
+`PATCH /videos/{id}/details`. Videos that weren't counted are never plotted. Every video that isn't a point
+is in `notPlotted` with a `reason` (`too_short`, `not_confirmed`, `counting`, `not_counted`, `no_date`,
+`not_reviewed`) and a plain-English `explanation`. Videos without a date stay listed whatever the date range.
+`groups` has the mean, min–max range and number of videos per date when `groupBySurvey` is on.
+
 ### Blind QC
 
 | Method | Path | Body | Returns |

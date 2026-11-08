@@ -66,6 +66,72 @@ export type SurveyInfo = {
   videosCounting: number;
 };
 
+/** One point on the Trends graphs: one counted video. */
+export type TrendPoint = {
+  videoId: number;
+  surveyId: number;
+  surveySite: string;
+  fileName: string;
+  label: string;
+  recordedAt: string;
+  transect: string;
+  stat: string;
+  speciesFound: number;
+  meanCount: number | null;
+  clarityIndex: number | null; // video median
+  clarityMin: number | null;
+  clarityMax: number | null;
+  clarityTrend: string | null;
+  visibility: string | null; // confirmed or suggested category
+  reviewed: boolean;
+  shortWindow: boolean; // not comparable with full windows
+  imported: boolean;
+};
+
+/** All the plotted videos of one date (Group by survey date). */
+export type TrendGroup = {
+  label: string;
+  recordedAt: string;
+  videos: number;
+  clarityMean: number | null;
+  clarityMin: number | null;
+  clarityMax: number | null;
+  speciesMean: number;
+  speciesMin: number;
+  speciesMax: number;
+  meanCount: number | null;
+};
+
+/** A video that isn't on the Trends graphs; `explanation` is shown to staff as-is. */
+export type NotPlottedVideo = {
+  videoId: number;
+  surveyId: number;
+  surveySite: string;
+  fileName: string;
+  transect: string;
+  stat: string;
+  recordedAt: string;
+  reason: string; // "too_short" | "not_confirmed" | "counting" | "not_counted" | "no_date" | "not_reviewed"
+  explanation: string;
+};
+
+export type Trends = {
+  points: TrendPoint[];
+  groups: TrendGroup[];
+  notPlotted: NotPlottedVideo[];
+  transects: string[];
+  stats: string[];
+};
+
+export type TrendsQuery = {
+  transect: string;
+  stat: string;
+  from: string; // YYYY-MM-DD
+  to: string;
+  reviewedOnly: boolean;
+  groupBySurvey: boolean;
+};
+
 /** How one video's count is going (GET /counts). */
 export type CountStatus = {
   videoId: number;
@@ -396,6 +462,10 @@ export type TideApi = {
     evaluate: (id: number, csvPath?: string) => Promise<Evaluation>;
     /** Each video's proposed and confirmed analysis window. */
     videos: (id: number) => Promise<Video[]>;
+  };
+  trends: {
+    /** One point per counted video, and every other video with the reason it isn't plotted. */
+    get: (query: TrendsQuery) => Promise<Trends>;
   };
   counts: {
     /** How every video's count is going. */
