@@ -155,9 +155,10 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  wide?: boolean | "xl"; // true: medium-wide; "xl": large (e.g. the Species Registry dialog)
+  wide?: boolean | "xl" | "full"; // true: medium-wide; "xl": large (Species Registry); "full": nearly the whole window
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const full = wide === "full";
   // When the dialog closes, put keyboard focus back on whatever opened it (for example a card).
   // This must run before the effect below moves focus into the dialog, so it remembers the opener.
   useEffect(() => {
@@ -178,14 +179,17 @@ export function Modal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6 print:hidden" onMouseDown={onClose}>
+    <div
+      className={`fixed inset-0 z-50 grid place-items-center bg-black/50 p-6 print:hidden ${full ? "backdrop-blur-sm" : ""}`}
+      onMouseDown={onClose}
+    >
       <div
         ref={box}
         role="dialog"
         aria-modal
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className={`w-full ${wide === "xl" ? "max-w-4xl" : wide ? "max-w-2xl" : "max-w-md"} max-h-[85vh] overflow-auto rounded-2xl border border-border bg-card p-6 shadow-2xl`}
+        className={`w-full ${full ? "max-h-[94vh] max-w-[min(96vw,110rem)]" : `max-h-[85vh] ${wide === "xl" ? "max-w-4xl" : wide ? "max-w-2xl" : "max-w-md"}`} overflow-auto rounded-2xl border border-border bg-card p-6 shadow-2xl`}
       >
         <div className="mb-4 font-display text-lg font-semibold">{title}</div>
         {children}

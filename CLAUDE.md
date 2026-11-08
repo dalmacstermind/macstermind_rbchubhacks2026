@@ -511,7 +511,9 @@ Behaviour:
 ### Labelling canvas
 
 - The labelling canvas shows the full frame with AI boxes and lets the user step to the previous /
-  next frame (camouflaged organisms often show only when moving).
+  next frame (camouflaged organisms often show only when moving). It opens large, in a dialog, when a
+  card is clicked, with zoom, brightness and contrast. Those only change the view: the saved picture
+  never changes, and boxes stay in % of the picture at any zoom.
 - A drawn box that overlaps an existing track (IoU above `label.match_iou` in `config/app.yaml`)
   relabels that track instead of adding a new organism, so nothing is counted twice.
 - Drawn and corrected boxes can be exported locally in COCO format as YOLOX training data
