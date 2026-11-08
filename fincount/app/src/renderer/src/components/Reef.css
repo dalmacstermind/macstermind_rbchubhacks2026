@@ -1,0 +1,149 @@
+/*
+ * Extra layers for the "reef" splash: sea floor (coral, kelp), plankton, a jellyfish, and a
+ * labelled crab and shrimp. Plain CSS like Splash.css; shown still when "Reduce motion" is on.
+ */
+
+/* Plankton: tiny glowing specks that drift and twinkle */
+.reef-plankton {
+  position: absolute;
+  border-radius: 9999px;
+  background: oklch(0.92 0.09 175);
+  box-shadow: 0 0 6px 1px oklch(0.85 0.12 180 / 0.7);
+  animation: reef-drift ease-in-out infinite alternate, reef-twinkle ease-in-out infinite alternate;
+}
+
+/* Kelp and coral branches sway from their base */
+.reef-sway {
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: reef-sway ease-in-out infinite alternate;
+}
+
+/* Jellyfish: drifts up slowly while its bell pulses */
+.reef-jelly {
+  position: absolute;
+  animation: reef-jelly-rise 15s ease-in-out forwards;
+}
+.reef-jelly-bell {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: reef-pulse 2.4s ease-in-out infinite;
+}
+.reef-tentacle {
+  transform-box: fill-box;
+  transform-origin: top center;
+  animation: reef-sway 2.4s ease-in-out infinite alternate;
+}
+
+/* Crab: scuttles sideways along the sea floor */
+.reef-crab {
+  position: absolute;
+  left: 0;
+  animation: reef-crab-walk 26s linear infinite;
+}
+.reef-crab-body {
+  animation: reef-scuttle 0.35s ease-in-out infinite alternate;
+}
+
+/* Shrimp: darts forward in bursts, pausing in between */
+.reef-shrimp {
+  position: absolute;
+  left: 0;
+  animation: reef-shrimp-dart 16s cubic-bezier(0.3, 0, 0.2, 1) infinite;
+}
+.reef-shrimp-body {
+  animation: tide-bob 1.2s ease-in-out infinite alternate;
+}
+
+/* Survey camera: lowered from the surface, swaying on its cable, looking around, shutter blinking */
+.reef-cam-drop {
+  animation: reef-cam-drop 2.8s cubic-bezier(0.25, 0.9, 0.3, 1.05) 0.4s both;
+}
+.reef-cam-swing {
+  transform-box: view-box;
+  transform-origin: 100px -40px;
+  animation: reef-cam-swing 5s ease-in-out infinite alternate;
+}
+.reef-cam-look {
+  animation: reef-cam-look 6s ease-in-out infinite;
+}
+.reef-cam-shutter {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+  animation: reef-cam-blink 3.8s ease-in-out 3.2s infinite;
+}
+.reef-lamp-glow {
+  animation: reef-twinkle 2.6s ease-in-out infinite alternate;
+}
+.reef-rec {
+  animation: reef-rec 1.2s steps(2, jump-none) infinite;
+}
+
+@keyframes reef-cam-drop {
+  from { transform: translateY(-115%); }
+  to { transform: translateY(0); }
+}
+@keyframes reef-cam-swing {
+  from { transform: rotate(-3deg); }
+  to { transform: rotate(3deg); }
+}
+/* Turn the lens left, pause, right, pause, back to the middle */
+@keyframes reef-cam-look {
+  0%, 12% { transform: translate(0, 0); }
+  22%, 40% { transform: translate(-7px, 1px); }
+  52%, 70% { transform: translate(7px, -1px); }
+  82%, 100% { transform: translate(0, 0); }
+}
+/* A quick shutter blink near the end of each cycle */
+@keyframes reef-cam-blink {
+  0%, 88%, 100% { transform: scale(0); }
+  93% { transform: scale(1); }
+}
+@keyframes reef-rec {
+  from { opacity: 1; }
+  to { opacity: 0.15; }
+}
+@keyframes reef-drift {
+  from { transform: translate(0, 0); }
+  to { transform: translate(18px, -26px); }
+}
+@keyframes reef-twinkle {
+  from { opacity: 0.15; }
+  to { opacity: 0.9; }
+}
+@keyframes reef-sway {
+  from { transform: rotate(-4deg); }
+  to { transform: rotate(4deg); }
+}
+@keyframes reef-pulse {
+  0%, 100% { transform: scale(1, 1); }
+  40% { transform: scale(1.08, 0.86); }
+}
+@keyframes reef-jelly-rise {
+  from { transform: translateY(0); }
+  to { transform: translateY(-28vh); }
+}
+@keyframes reef-crab-walk {
+  from { transform: translateX(110vw); }
+  to { transform: translateX(-12vw); }
+}
+@keyframes reef-scuttle {
+  from { transform: translateY(0) rotate(-1.5deg); }
+  to { transform: translateY(-2px) rotate(1.5deg); }
+}
+@keyframes reef-shrimp-dart {
+  0% { transform: translateX(-10vw); }
+  20% { transform: translateX(15vw); }
+  28% { transform: translateX(16vw); }
+  48% { transform: translateX(45vw); }
+  56% { transform: translateX(46vw); }
+  76% { transform: translateX(80vw); }
+  84% { transform: translateX(81vw); }
+  100% { transform: translateX(112vw); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reef-plankton { opacity: 0.6; }
+  .reef-crab, .reef-shrimp { display: none; }
+}
