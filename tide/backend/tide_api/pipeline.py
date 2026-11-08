@@ -7,6 +7,7 @@ as a background job, saves the pictures and writes the results to the database.
 Demo mode (no model files): the old stub below still runs, and the app shows "Demo mode" so
 sample results are never presented as live inference (CLAUDE.md, hard constraint 7).
 """
+import itertools
 import logging
 import random
 import shutil
@@ -498,26 +499,32 @@ class Jobs:
 
     # ── Counting at the subsample points, after a person confirmed the window ──
 
-    def count_video(self, video_id: int) -> None:
-        """Queue point counting for one video. Runs one video at a time in the background."""
-        self.db.set_count_state(video_id, "queued", "Waiting to count")
+    def count_video(self, video_id: int, resumed: bool = False) -> None:
+        """Queue point counting for one video. Runs one video at a time in the background.
+
+        Videos a person just confirmed go first; counts restarted after the app was closed (resumed)
+        wait until those are done, so an old long video never holds up the one staff are looking at.
+        """
+        self.db.set_count_state(video_id, "queued", "Waiting for another video to finish counting"
+                                if resumed else "Waiting to count")
         with self.lock:
             if not hasattr(self, "_count_queue"):
-                self._count_queue: queue.Queue[int] = queue.Queue()
+                self._count_queue: queue.PriorityQueue[tuple[int, int, int]] = queue.PriorityQueue()
+                self._count_order = itertools.count()
                 threading.Thread(target=self._count_worker, daemon=True).start()
-        self._count_queue.put(video_id)
+            self._count_queue.put((1 if resumed else 0, next(self._count_order), video_id))
 
     def resume_counts(self) -> list[int]:
         """Count again any video whose counting was cut off (the app was closed part-way through)."""
         ids = self.db.unfinished_counts()
         for video_id in ids:
             log.info("Counting video %s again: it was interrupted", video_id)
-            self.count_video(video_id)
+            self.count_video(video_id, resumed=True)
         return ids
 
     def _count_worker(self):
         while True:
-            video_id = self._count_queue.get()
+            _, _, video_id = self._count_queue.get()
             try:
                 self._count_one(video_id)
             except Exception as e:  # shown to staff on the report
