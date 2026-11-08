@@ -532,7 +532,7 @@ class Jobs:
             clip_dir=out_dir / "clips" / key, enhance=req.enhance,
             index=ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name)),
             save_picture=lambda img, name: _save_jpg(img, out_dir / f"{key}_{name}.jpg"),
-            on_progress=progress, cancelled=lambda: False)
+            on_progress=progress, cancelled=lambda: False, short_window=bool(v["short_window"]))
         for pt in res.points:
             self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
         registry = {s.id for s in self.db.list_species()}

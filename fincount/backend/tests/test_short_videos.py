@@ -82,7 +82,10 @@ def test_short_video_is_counted_after_confirmation(tmp_path, monkeypatch):
             break
         time.sleep(0.05)
     assert res["countState"] == "done" and res["shortWindow"] is True
-    assert [p["timestampS"] for p in res["points"]] == [0] and res["points"][0]["totalFish"] == 1
+    # Points spread across the 8 s clip (every ~2 s, each in the middle of its slice).
+    assert [p["timestampS"] for p in res["points"]] == [1, 3, 5, 7]
+    # One square at every point (two at 7 s: it jumps across the picture inside the ±0.5 s window there).
+    assert [p["totalFish"] for p in res["points"]][:3] == [1, 1, 1] and 1 <= res["meanCount"] <= 1.25
 
 
 # ── small fish: stationary objects, speck size, tiled search ──
@@ -133,3 +136,11 @@ def test_tiled_search_finds_small_things_and_merges_overlaps():
     assert det.detect(img) == []  # too small in the whole picture
     found = det.detect_tiled(img, 2)
     assert len(found) == 1 and found[0].box == (600.0, 500.0, 639.0, 519.0)
+
+
+def test_short_window_points_are_spread():
+    from aquavision.protocol import short_window_timestamps
+    sub = PROTOCOL.subsample
+    assert short_window_timestamps(0, 8, sub, W.length_s) == [1, 3, 5, 7]
+    assert short_window_timestamps(0, 1.5, sub, W.length_s) == [0.75]  # always at least one point
+    assert len(short_window_timestamps(60, 120, sub, W.length_s)) == 15  # never more than a full window (15)

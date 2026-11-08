@@ -27,7 +27,8 @@ from .clips import save_clip
 from .config import AppConfig, ProtocolConfig, VisionConfig
 from .detect import Detection, Detector
 from .frames import iter_sampled_frames, probe_video
-from .protocol import AnalysisWindow, _require_confirmed, context_range, plan_subsample_points
+from .protocol import (AnalysisWindow, _require_confirmed, context_range, plan_short_window_points,
+                       plan_subsample_points)
 from .species import ReferenceIndex, SpeciesResult, crop_box, match
 from .track import VideoTracker, image_tracks
 
@@ -204,11 +205,19 @@ class Analyser:
     def analyse_video(self, path: Path, file_key: str, *, window: AnalysisWindow, protocol: ProtocolConfig,
                       app: AppConfig, clip_dir: Path, enhance: bool, index: ReferenceIndex,
                       save_picture: Callable[[np.ndarray, str], Path], on_progress: Callable[[float], None],
-                      cancelled: Callable[[], bool]) -> FileResult:
-        """Count one video inside a window a person confirmed (refuses any other)."""
+                      cancelled: Callable[[], bool], short_window: bool = False) -> FileResult:
+        """Count one video inside a window a person confirmed (refuses any other).
+
+        short_window: a short video's shorter window, so the points are spread across the clip
+        (protocol.short_window_timestamps) instead of every subsample.interval_s.
+        """
         _require_confirmed(window)
         info = probe_video(path)
-        plans = plan_subsample_points(file_key, window.start_s, window.end_s, protocol.subsample, clip_dir)
+        if short_window:
+            plans = plan_short_window_points(file_key, window.start_s, window.end_s, protocol.subsample,
+                                             protocol.window.length_s, clip_dir)
+        else:
+            plans = plan_subsample_points(file_key, window.start_s, window.end_s, protocol.subsample, clip_dir)
         ctx = protocol.subsample.context_s
         fps = self.cfg.detect.context_fps
         scan_fps = protocol.richness.scan_fps

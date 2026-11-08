@@ -212,6 +212,30 @@ def context_range(timestamp_s: float, context_s: float, duration_s: float) -> tu
     return max(0.0, timestamp_s - context_s), min(duration_s, timestamp_s + context_s)
 
 
+def short_window_timestamps(window_start_s: float, window_end_s: float, cfg: SubsampleConfig,
+                            full_window_s: float) -> list[float]:
+    """Points for a SHORTER window (a short video, window.allow_short_videos): spread across the clip.
+
+    The window is cut into n equal slices with a point in the middle of each, about
+    subsample.short_window_interval_s apart, and never more points than a full window has
+    (window.length_s ÷ subsample.interval_s). Example: 8 s with 2 s spacing -> 1, 3, 5, 7 s.
+    """
+    length = window_end_s - window_start_s
+    if length <= 0:
+        raise WindowError(f"The analysis window {window_start_s}–{window_end_s} s is not a valid time range.")
+    full = max(1, int(full_window_s // cfg.interval_s))
+    n = max(1, min(full, int(length // cfg.short_window_interval_s)))
+    step = length / n
+    return [round(window_start_s + (k + 0.5) * step, 3) for k in range(n)]
+
+
+def plan_short_window_points(video_id: str, window_start_s: float, window_end_s: float, cfg: SubsampleConfig,
+                             full_window_s: float, clip_dir: Path) -> list[SubsamplePoint]:
+    times = short_window_timestamps(window_start_s, window_end_s, cfg, full_window_s)
+    width = max(2, len(str(len(times))))
+    return [SubsamplePoint(video_id, n, t, clip_dir / f"point_{n:0{width}d}.mp4") for n, t in enumerate(times, 1)]
+
+
 def plan_subsample_points(video_id: str, window_start_s: float, window_end_s: float, cfg: SubsampleConfig,
                           clip_dir: Path) -> list[SubsamplePoint]:
     """The points for one video, with where each clip will be saved. Reads no files."""

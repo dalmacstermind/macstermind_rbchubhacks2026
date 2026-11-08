@@ -33,6 +33,7 @@ class SubsampleConfig:
     unit_s: float
     context_s: float
     first_point_offset_s: float
+    short_window_interval_s: float  # point spacing in shorter windows (short videos only)
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def load_protocol_config(path: Path | None = None) -> ProtocolConfig:
             unit_s=_num(sub, "subsample.unit_s", path, minimum=0, strict=True),
             context_s=_num(sub, "subsample.context_s", path, minimum=0),
             first_point_offset_s=_num(sub, "subsample.first_point_offset_s", path, minimum=0),
+            short_window_interval_s=_num(sub, "subsample.short_window_interval_s", path, minimum=0, strict=True),
         ),
         richness=RichnessConfig(scan_fps=_num(rich, "richness.scan_fps", path, minimum=0, strict=True)),
         count=CountConfig(tolerance_s=_num(count, "count.tolerance_s", path, minimum=0),

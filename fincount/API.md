@@ -132,6 +132,8 @@ before the last 60 s of the video.
 Videos shorter than trim + window + trim (17 min) get a **shorter window** over the usable clip
 (`shortWindow: true`, `window.allow_short_videos: true` in `protocol.yaml`, the default): any part of the
 video, at most 15 min, still confirmed by a person, and flagged as not comparable with full windows.
+Its points are spread across the clip, about `subsample.short_window_interval_s` (2 s) apart, each in the
+middle of its slice, and never more than a full window has (15).
 With `allow_short_videos: false` they are flagged `tooShort` and not processed.
 
 ### Blind QC

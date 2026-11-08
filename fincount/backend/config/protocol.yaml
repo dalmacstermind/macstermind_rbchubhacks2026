@@ -23,6 +23,10 @@ subsample:
   unit_s: 1                 # one analysed unit is 1 second
   context_s: 5              # context viewed around each point: ±5 s (may become ±10 s)
   first_point_offset_s: 0   # point 1 sits this far after the window start (to confirm with Coastal Action)
+  # Shorter windows only (window.allow_short_videos): points spread across the clip about this far
+  # apart, each in the middle of its slice, at most as many as a full window has. Not the protocol's
+  # 60 s spacing, so short-video counts stay flagged as not comparable.
+  short_window_interval_s: 2
 
 count:
   tolerance_s: 0.5          # count an organism only if seen within ±0.5 s of the point
