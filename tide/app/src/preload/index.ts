@@ -15,6 +15,7 @@ const desktop: DesktopApi = {
   saveXlsx: (name, data) => ipcRenderer.invoke("export:xlsx", name, data),
   savePdf: (name) => ipcRenderer.invoke("export:pdf", name),
   setProgress: (fraction) => ipcRenderer.send("taskbar:progress", fraction),
+  setCounting: (videos) => ipcRenderer.send("counting:set", videos),
   openPath: (path) => ipcRenderer.send("shell:open", path),
 };
 

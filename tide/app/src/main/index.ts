@@ -28,6 +28,7 @@ app.setPath("userData", join(app.getPath("appData"), "TIDE"));
 let win: BrowserWindow | null = null;
 let backend: ChildProcess | null = null;
 let backendInfo: Promise<BackendInfo>;
+let countingVideos = 0; // videos waiting or being counted (the screens keep this up to date)
 
 /* ───────────── Back end ───────────── */
 
@@ -122,6 +123,20 @@ function createWindow() {
     },
   });
   win.once("ready-to-show", () => win?.show());
+  // Counting stops with the app and nothing of it is kept, so ask before closing in the middle of one.
+  win.on("close", (e) => {
+    if (!countingVideos) return;
+    const choice = dialog.showMessageBoxSync(win!, {
+      type: "warning",
+      title: "TIDE is still counting",
+      message: "TIDE is still counting. Close it anyway?",
+      detail: "Counting stops when TIDE closes and nothing of the unfinished count is kept. You'd have to count again.",
+      buttons: ["Keep counting", "Close TIDE"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (choice === 0) e.preventDefault();
+  });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) void shell.openExternal(url);
     return { action: "deny" };
@@ -205,6 +220,7 @@ function registerIpc() {
   });
 
   ipcMain.on("taskbar:progress", (_e, fraction: number | null) => win?.setProgressBar(fraction ?? -1));
+  ipcMain.on("counting:set", (_e, videos: number) => (countingVideos = videos));
   ipcMain.on("shell:open", (_e, path: string) => void shell.openPath(path));
 
   ipcMain.handle("export:pdf", async (e, name: string) => {

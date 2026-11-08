@@ -241,14 +241,21 @@ export function frameCounts(frame: Frame, species: Species[], threshold: number)
 }
 
 /** Things still open on a survey. Shown before export and in "Your surveys". */
-export type OpenItem = { key: "review" | "label" | "qc"; text: string };
+export type OpenItem = { key: "window" | "count" | "review" | "label" | "qc"; text: string };
 
 export function openItems(
   summary: Summary,
   qc?: { done: number; total: number; agreement: number | null; target: number },
+  videos?: { windowsToConfirm: number; videosToCount: number },
 ) {
   const items: OpenItem[] = [];
   const s = (n: number) => (n === 1 ? "" : "s");
+  // A video that hasn't been counted is the biggest thing still open: its fish aren't in any number yet.
+  const windows = videos?.windowsToConfirm ?? 0;
+  const uncounted = (videos?.videosToCount ?? 0) - windows;
+  if (windows)
+    items.push({ key: "window", text: `${windows} video${s(windows)} not counted: analysis window to confirm` });
+  if (uncounted > 0) items.push({ key: "count", text: `${uncounted} video${s(uncounted)} not finished counting` });
   if (summary.toReview)
     items.push({
       key: "review",

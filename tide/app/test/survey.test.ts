@@ -90,6 +90,13 @@ describe("survey summary", () => {
     expect(frameCounts(frames[0]!, DEFAULT_SPECIES, 0.5)).toEqual({ fish: 3, invertebrates: 2 });
   });
 
+  it("treats videos that aren't counted yet as open items", () => {
+    const s = summarize([], DEFAULT_SPECIES, 0.5);
+    const none = { done: 0, total: 0, agreement: null, target: 95 };
+    expect(openItems(s, none, { windowsToConfirm: 0, videosToCount: 0 })).toEqual([]);
+    expect(openItems(s, none, { windowsToConfirm: 1, videosToCount: 3 }).map((i) => i.key)).toEqual(["window", "count"]);
+  });
+
   it("lists open items for the export check", () => {
     const s = summarize(makeFrames(), DEFAULT_SPECIES, 0.5);
     expect(openItems(s, { done: 1, total: 2, agreement: 100, target: 95 }).map((i) => i.key)).toEqual(["review", "qc"]);

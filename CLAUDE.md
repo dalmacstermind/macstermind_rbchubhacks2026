@@ -561,6 +561,7 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | New | `GET /surveys/{id}/results` | Videos with per-point counts, MeanCount, richness; image counts |
 | Done (US-2.1) | `GET /surveys/{id}/videos` | Each video's proposed window, flags (`tooShort`, `settled`) and confirmed window |
 | Done (US-2.1) | `PATCH /videos/{id}` | Confirm analysis window (`windowStartS`, `windowEndS`); person from the `X-TIDE-User` header (URL-encoded, must be on the people list). Later: recording date, visibility |
+| Done | `GET /counts` | How every video's count is going (progress, time left, finished or failed), for the app-wide banner and notifications |
 | Done | `POST /videos/{id}/count` · `POST /videos/{id}/count/stop` | Count a confirmed window again; stop counting (needs `X-TIDE-User`; nothing of a stopped count is saved). Counts interrupted by closing TIDE are marked `stopped` at start-up |
 | New | `PATCH /points/{id}` | Review edit; keeps the original AI value |
 | New | `GET /media/{fileId}` | Stream a video or image (HTTP range requests so the player can seek) |
