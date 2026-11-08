@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CountStatus } from "../../shared/api";
 import { api } from "./api";
+import { notifyDesktop } from "./notifications";
 
 export const isCounting = (state: string) => state === "queued" || state === "running";
 
@@ -11,17 +12,21 @@ export function countsThatEnded(before: Map<number, string>, now: CountStatus[])
   return now.filter((c) => isCounting(before.get(c.videoId) ?? "") && (c.state === "done" || c.state === "failed"));
 }
 
-function notifyEnded(c: CountStatus) {
-  new Notification(c.state === "done" ? "TIDE: counting finished" : "TIDE: counting failed", {
-    body: `${c.fileName}: ${c.detail}`,
-  });
+function notifyEnded(c: CountStatus, onOpenSurvey: (surveyId: number) => void) {
+  notifyDesktop(
+    c.state === "done" ? "TIDE: counting finished" : "TIDE: counting failed",
+    `${c.fileName}: ${c.detail}`,
+    () => onOpenSurvey(c.surveyId),
+  );
 }
 
-export function useCounts(notify: boolean): CountStatus[] {
+export function useCounts(notify: boolean, onOpenSurvey: (surveyId: number) => void): CountStatus[] {
   const [counts, setCounts] = useState<CountStatus[]>([]);
   const before = useRef<Map<number, string> | null>(null); // null until the first check
   const notifyNow = useRef(notify);
   notifyNow.current = notify;
+  const openSurveyNow = useRef(onOpenSurvey);
+  openSurveyNow.current = onOpenSurvey;
 
   // Counting runs in the back end and carries on whichever screen is open, so check every 3 seconds.
   useEffect(() => {
@@ -31,7 +36,8 @@ export function useCounts(notify: boolean): CountStatus[] {
         const now = await api.counts.list();
         if (stopped) return;
         setCounts(now);
-        if (before.current && notifyNow.current) countsThatEnded(before.current, now).forEach(notifyEnded);
+        if (before.current && notifyNow.current)
+          countsThatEnded(before.current, now).forEach((c) => notifyEnded(c, (id) => openSurveyNow.current(id)));
         before.current = new Map(now.map((c) => [c.videoId, c.state]));
       } catch {
         // The back end is restarting or busy: try again at the next check.

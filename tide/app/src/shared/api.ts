@@ -456,5 +456,7 @@ export type DesktopApi = {
   setProgress: (fraction: number | null) => void;
   /** Tells Electron how many videos are being counted, so closing TIDE can warn first. */
   setCounting: (videos: number) => void;
+  /** Brings TIDE's window to the front (restoring it if it's minimized). */
+  focusWindow: () => void;
   openPath: (path: string) => void;
 };
