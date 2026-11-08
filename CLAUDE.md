@@ -350,7 +350,8 @@ The species TIDE can name (`views/Species.tsx`). It is always called **Species R
   hasn't settled) and stores it in the `videos` table. It is **never applied without a person**:
   subsample points and the richness scan only accept an `AnalysisWindow` confirmed via
   `PATCH /videos/{id}`. The app tells staff when windows wait for them (`SurveyInfo.windowsToConfirm`:
-  the finish message, the Report and the survey list). Videos shorter than trim + window + trim are flagged `too_short` and can't
+  the finish message, the Report and the survey list). Right after "Count the fish", a locked dialog asks for
+  each unconfirmed window, one video at a time (`ConfirmWindowsDialog`); "Decide later" leaves them on the Report. Videos shorter than trim + window + trim are flagged `too_short` and can't
   be confirmed or processed.
 - **Protocol settings (Settings screen):** staff change the window, subsample and QC values in the
   app. The shipped defaults stay in `backend/config/protocol.yaml` (never written by the app); staff
