@@ -43,6 +43,7 @@ db = Database(DATA_DIR / "tide.db")
 settings_store = ProtocolSettingsStore(DATA_DIR, db)
 protocol = settings_store.current
 jobs = Jobs(db, DATA_DIR, protocol, app_config)
+jobs.resume_counts()  # counting cut off when the app was last closed starts again
 
 
 def check_token(x_tide_token: str = Header(""), token: str = Query("")):

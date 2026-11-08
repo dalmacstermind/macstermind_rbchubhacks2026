@@ -507,6 +507,14 @@ class Jobs:
                 threading.Thread(target=self._count_worker, daemon=True).start()
         self._count_queue.put(video_id)
 
+    def resume_counts(self) -> list[int]:
+        """Count again any video whose counting was cut off (the app was closed part-way through)."""
+        ids = self.db.unfinished_counts()
+        for video_id in ids:
+            log.info("Counting video %s again: it was interrupted", video_id)
+            self.count_video(video_id)
+        return ids
+
     def _count_worker(self):
         while True:
             video_id = self._count_queue.get()

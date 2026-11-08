@@ -58,6 +58,7 @@ export function ReportView({
   const [saved, setSaved] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [counting, setCounting] = useState(false); // a video is still being counted: its pictures come later
   const open = openItems(s, qc ?? undefined);
   const fishRows = s.rows.filter((r) => r.sp.kind !== "invertebrate");
   const invRows = s.rows.filter((r) => r.sp.kind === "invertebrate");
@@ -157,6 +158,7 @@ export function ReportView({
           species={species}
           person={person}
           onCountingDone={onChanged}
+          onCountingChange={setCounting}
           version={frames.reduce((n, f) => n + f.detections.filter((d) => d.verified).length, frames.length)}
         />
 
@@ -183,9 +185,11 @@ export function ReportView({
 
         {s.rows.length === 0 ? (
           <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground">
-            {s.toReview > 0
-              ? "No fish counted yet. Check the possible fish above to add them to the report."
-              : "No fish were found in this footage."}
+            {counting
+              ? "Counting the points. The pictures and their fish appear here when it's done."
+              : s.toReview > 0
+                ? "No fish counted yet. Check the possible fish above to add them to the report."
+                : "No fish were found in this footage."}
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-border bg-card">

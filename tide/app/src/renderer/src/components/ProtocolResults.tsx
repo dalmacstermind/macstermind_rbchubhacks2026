@@ -15,12 +15,14 @@ export function ProtocolResults({
   person,
   version,
   onCountingDone,
+  onCountingChange,
 }: {
   surveyId: number;
   species: Species[];
   person: Person;
   version: number; // changes when something else on the page changed the survey (labels, checks)
   onCountingDone?: () => void; // reload the rest of the report (its pictures) once a video has been counted
+  onCountingChange?: (counting: boolean) => void; // a video is waiting to be, or being, counted
 }) {
   const [results, setResults] = useState<SurveyResults | null>(null);
   const [error, setError] = useState("");
@@ -44,6 +46,7 @@ export function ProtocolResults({
   }, [counting, load]);
 
   // When counting finishes, the report's pictures (Check the fish, picture-by-picture counts) are new too.
+  useEffect(() => onCountingChange?.(counting), [counting, onCountingChange]);
   const wasCounting = useRef(false);
   useEffect(() => {
     if (wasCounting.current && !counting) onCountingDone?.();

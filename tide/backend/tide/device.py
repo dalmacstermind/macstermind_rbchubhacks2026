@@ -33,3 +33,35 @@ def gpu_name() -> str | None:
         return None
     import torch
     return torch.cuda.get_device_name(0)
+
+
+@lru_cache(maxsize=1)
+def half_is_fast() -> bool:
+    """Whether this GPU runs half precision (fp16) faster than full precision (fp32).
+
+    Cards with tensor cores (RTX and newer) are much faster in fp16. Some cards without them,
+    like the GTX 1650 Ti, are ~4x SLOWER in fp16, which made species ID take minutes per video.
+    Measured once with a short matrix multiply; never fp16 on the CPU.
+    """
+    if torch_device() != "cuda":
+        return False
+    import time
+
+    import torch
+    try:
+        with GPU_LOCK:
+            x = torch.randn(1024, 1024, device="cuda")
+            speed = {}
+            for dt in (torch.float32, torch.float16):
+                y = x.to(dt)
+                y @ y  # warm-up
+                torch.cuda.synchronize()
+                t = time.perf_counter()
+                for _ in range(20):
+                    y @ y
+                torch.cuda.synchronize()
+                speed[dt] = time.perf_counter() - t
+            del x, y
+        return speed[torch.float16] < speed[torch.float32]
+    except Exception:  # a failed check keeps the safe choice
+        return False
