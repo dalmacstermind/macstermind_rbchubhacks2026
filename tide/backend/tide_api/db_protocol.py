@@ -44,7 +44,7 @@ PROTOCOL_MIGRATIONS = [
     ("surveys", "ignore_specks", "INTEGER NOT NULL DEFAULT 1"),
     ("surveys", "look_closer", "INTEGER NOT NULL DEFAULT 0"),
     ("surveys", "tracker", "TEXT NOT NULL DEFAULT ''"),
-    # SeaSieve filters, per picture and per detection
+    # Picture filters, per picture and per detection
     ("frames", "quality", "TEXT NOT NULL DEFAULT ''"),  # clear | moderate | muddy | obscured
     ("frames", "quality_score", "REAL"),
     ("frames", "quality_reasons", "TEXT NOT NULL DEFAULT ''"),

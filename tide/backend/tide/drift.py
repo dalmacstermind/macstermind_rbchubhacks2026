@@ -1,6 +1,6 @@
 """Drift filter: tracks that move exactly with the water (debris, weed, sediment, bubbles).
 
-Ported from SeaSieve. For each tracked object we compare how far its box moved between two
+For each tracked object we compare how far its box moved between two
 pictures with the background's optical flow around it (Farneback). Debris drifts with the local
 flow; fish usually don't. Fish can also drift with the current, so this is a review signal, never
 an automatic rejection: drifting tracks aren't counted until a person confirms them.

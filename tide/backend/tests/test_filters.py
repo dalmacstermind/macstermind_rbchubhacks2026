@@ -1,4 +1,4 @@
-"""SeaSieve filters in TIDE: picture quality, static pictures, drift (tide/quality.py,
+"""Picture filters: picture quality, static pictures, drift (tide/quality.py,
 static_filter.py, drift.py) and the OC-SORT tracker option. Pictures are made at test time."""
 from dataclasses import replace
 

@@ -1,4 +1,4 @@
-"""Frame quality: is this picture clear enough to find and identify fish? (ported from SeaSieve)
+"""Frame quality: is this picture clear enough to find and identify fish?
 
 These are image-quality indicators, not turbidity. Each picture gets a 0–100 score and a category:
 
@@ -62,7 +62,7 @@ def metrics(image_bgr: np.ndarray, width: int) -> dict:
 
 
 def score(m: dict) -> float:
-    """0–100. Exposure, haze and colour only count when there is visible structure (SeaSieve finding:
+    """0–100. Exposure, haze and colour only count when there is visible structure (found on test footage:
     a featureless frame otherwise scored ~18)."""
     parts = {
         "contrast": _clip01(m["contrast"] / 55.0),
@@ -98,5 +98,5 @@ def assess(image_bgr: np.ndarray, cfg: QualityConfig) -> QualityResult:
     if "blurred" in reasons and "low contrast" in reasons and i < 2:
         cat = CATEGORIES[i + 1]  # both: one category worse
     elif "hazy or turbid" in reasons and cat == "clear":
-        cat = "moderate"  # haze veils fish even when overlays look sharp (SeaSieve finding)
+        cat = "moderate"  # haze veils fish even when overlays look sharp (found on test footage)
     return QualityResult(sc, cat, reasons)

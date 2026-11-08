@@ -1,6 +1,6 @@
 """Static pictures: skip the detector when a picture is the same as the last one searched.
 
-Ported from SeaSieve. A static picture is not an empty one: a fish can hold still for a long time.
+A static picture is not an empty one: a fish can hold still for a long time.
 So nothing is thrown away. For a static picture the detector isn't run again and the boxes of the
 last searched picture are carried over (the tracker keeps following the same fish). Long static
 runs are searched again every `periodic_interval_s`. A small fish moving in a still scene changes

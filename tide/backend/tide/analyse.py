@@ -155,7 +155,7 @@ class Analyser:
                       tick: Callable[[], None], drift: DriftFilter | None = None) -> None:
         """Detect (and track) every picture from `sources`, keeping crops for species ID.
 
-        Per picture (SeaSieve workflow): quality check → the cleared-up picture is only searched when
+        Per picture: quality check → the cleared-up picture is only searched when
         the picture isn't clear → static pictures reuse the last boxes → detector → tracker → drift.
         """
         static = StaticFilter(self.cfg.static_filter) if tracker else None
