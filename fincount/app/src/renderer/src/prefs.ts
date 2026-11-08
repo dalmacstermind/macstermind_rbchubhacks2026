@@ -7,6 +7,7 @@ export type Prefs = {
   sampling: Sampling;
   enhance: boolean;
   ignoreSpecks: boolean;
+  lookCloser: boolean; // tiled search for small fish (slower)
   qcPercent: number; // % of pictures picked for blind QC
   qcMaxDiff: number; // % difference that asks for a recount
   qcTarget: number; // % of QC pictures that should agree
@@ -18,6 +19,7 @@ export const DEFAULT_PREFS: Prefs = {
   sampling: 1,
   enhance: true,
   ignoreSpecks: true,
+  lookCloser: false,
   qcPercent: 10,
   qcMaxDiff: 6,
   qcTarget: 95,

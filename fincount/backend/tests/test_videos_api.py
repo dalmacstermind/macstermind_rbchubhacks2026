@@ -16,6 +16,10 @@ def client(tmp_path, monkeypatch):
     import fincount_api.pipeline as pipeline
     monkeypatch.setattr(pipeline, "time", SimpleNamespace(sleep=lambda s: None))  # skip the demo stub's pauses
     importlib.reload(main)
+    # These tests check the strict rule (window.allow_short_videos: false); test_short_videos.py checks the default.
+    from dataclasses import replace
+    strict = replace(main.protocol, window=replace(main.protocol.window, allow_short_videos=False))
+    main.protocol = main.jobs.protocol = strict
     c = TestClient(main.app, headers={"X-FinCount-Token": "secret"})
     c.post("/people", json={"name": "Alex", "role": "analyst"})
     return c

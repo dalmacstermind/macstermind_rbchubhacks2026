@@ -35,6 +35,7 @@ export default function App() {
     sampling: prefs.sampling,
     enhance: prefs.enhance,
     ignoreSpecks: prefs.ignoreSpecks,
+    lookCloser: prefs.lookCloser,
   }));
   const [species, setSpecies] = useState<Species[]>([]);
   const [model, setModel] = useState<ModelStatus | null>(null);

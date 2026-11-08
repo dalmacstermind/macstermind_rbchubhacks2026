@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .clarity import summarise
-from .config import ClarityConfig, ProtocolConfig
+from .config import ClarityConfig, ProtocolConfig, StationaryConfig
 from .count import (ImageCount, PointCount, Sighting, TrackLabel, count_image, count_point, mean_count,
                     species_richness)
 
@@ -48,6 +48,7 @@ class VideoSummary:
     proposed_reason: str
     settled: bool | None
     too_short: bool  # flagged: not processed
+    short_window: bool  # shorter than the protocol window: counts not comparable with full windows
     confirmed_by: str
     count_state: str  # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed"
     count_detail: str
@@ -74,11 +75,14 @@ class SurveyResults:
 
 
 def _sightings(rows) -> list[Sighting]:
-    return [Sighting(r["track_id"], r["t_s"] or 0.0, r["confidence"]) for r in rows if r["track_id"]]
+    keys = rows[0].keys() if rows else []
+    return [Sighting(r["track_id"], (r["t_s"] or 0.0) if "t_s" in keys else 0.0, r["confidence"],
+                     (r["x"], r["y"], r["w"], r["h"]) if "x" in keys else None) for r in rows if r["track_id"]]
 
 
 def video_summary(video, points, sightings, frames_by_point: dict[int, list], labels: dict[str, TrackLabel],
-                  threshold: float, protocol: ProtocolConfig, clarity_cfg: ClarityConfig) -> VideoSummary:
+                  threshold: float, protocol: ProtocolConfig, clarity_cfg: ClarityConfig,
+                  stationary_cfg: StationaryConfig | None = None) -> VideoSummary:
     """video, points: rows; sightings: detection rows with role/point_no/t_s; frames_by_point: point_no → frames."""
     tol = protocol.count.effective_tolerance_s
     results: list[PointResult] = []
@@ -88,7 +92,7 @@ def video_summary(video, points, sightings, frames_by_point: dict[int, list], la
         clar = [f["clarity"] for f in frames_by_point.get(p["point_no"], [])
                 if f["clarity"] is not None and abs((f["t_s"] or 0) - p["timestamp_s"]) <= tol + _EPS]
         ai = count_point(str(video["id"]), p["point_no"], p["timestamp_s"], _sightings(in_point), labels, threshold,
-                         protocol, clar, clarity_cfg, previous)
+                         protocol, clar, clarity_cfg, previous, stationary_cfg)
         previous = ai.suggested_visibility or previous
         results.append(PointResult(
             p["id"], ai,
@@ -104,7 +108,7 @@ def video_summary(video, points, sightings, frames_by_point: dict[int, list], la
         video["id"], video["file_name"], video["recorded_at"], video["transect"], video["stat"],
         video["window_start_s"], video["window_end_s"], video["proposed_start_s"], video["proposed_end_s"],
         video["proposed_reason"], None if video["settled"] is None else bool(video["settled"]),
-        bool(video["too_short"]), video["confirmed_by"], video["count_state"], video["count_detail"], results,
+        bool(video["too_short"]), bool(video["short_window"]), video["confirmed_by"], video["count_state"], video["count_detail"], results,
         mean_count([r.ai for r in results], [r.total_fish for r in results]),
         mean_count([r.ai for r in results]), found, summary.median, summary.min, summary.max, summary.trend,
         visibility, bool(results) and all(r.reviewed for r in results if r.ai.needs_review))

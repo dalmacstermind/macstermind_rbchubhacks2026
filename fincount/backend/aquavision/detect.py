@@ -143,6 +143,37 @@ class CfdDetector:
             out.append(Detection(frame_idx, t_s, (x1, y1, x2, y2), "fish", float(scores[i]), None))
         return out
 
+    def detect_tiled(self, image_bgr: np.ndarray, grid: int, frame_idx: int = 0, t_s: float = 0.0,
+                     enhance: bool = False, overlap: float = 0.15) -> list[Detection]:
+        """'Look closer for small fish': the whole picture plus a grid×grid of overlapping tiles, merged.
+
+        Small, distant fish are only a few pixels wide once the whole picture is shrunk to the
+        detector's input size; in a tile they are 'grid' times bigger. Boxes cut by a tile edge are
+        dropped (the overlapping tile sees them whole). About grid×grid+1 times slower.
+        """
+        self.load()
+        h, w = image_bgr.shape[:2]
+        th, tw = min(h, int(h / grid * (1 + overlap))), min(w, int(w / grid * (1 + overlap)))
+        boxes, scores = [], []
+        for d in self.detect(image_bgr, frame_idx, t_s, enhance=enhance):
+            boxes.append(d.box)
+            scores.append(d.conf)
+        for gy in range(grid):
+            for gx in range(grid):
+                y0, x0 = min(h - th, int(gy * h / grid)), min(w - tw, int(gx * w / grid))
+                for d in self.detect(image_bgr[y0:y0 + th, x0:x0 + tw], frame_idx, t_s, enhance=enhance):
+                    x1, y1, x2, y2 = d.box
+                    edge = ((x1 <= 1 and x0 > 0) or (y1 <= 1 and y0 > 0) or (x2 >= tw - 1 and x0 + tw < w)
+                            or (y2 >= th - 1 and y0 + th < h))
+                    if not edge:
+                        boxes.append((x1 + x0, y1 + y0, x2 + x0, y2 + y0))
+                        scores.append(d.conf)
+        if not boxes:
+            return []
+        b, s = np.asarray(boxes, np.float32), np.asarray(scores, np.float32)
+        return [Detection(frame_idx, t_s, tuple(float(v) for v in b[i]), "fish", float(s[i]), None)
+                for i in nms(b, s, self.cfg.nms_iou)]
+
     def describe(self) -> dict:
         return {"name": self.name, "checkpoint": self.cfg.checkpoint.name, "device": self.device,
                 "resolution": self.resolution}

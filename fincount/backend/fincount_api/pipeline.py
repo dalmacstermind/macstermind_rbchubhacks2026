@@ -153,8 +153,8 @@ class Vision:
                 self._encoder = BioClipEncoder(self.cfg.species)
             return self._encoder.load() if hasattr(self._encoder, "load") else self._encoder
 
-    def analyser(self) -> Analyser:
-        return Analyser(self.cfg, self.detector(), self.encoder())
+    def analyser(self, look_closer: bool = False) -> Analyser:
+        return Analyser(self.cfg, self.detector(), self.encoder(), look_closer=look_closer)
 
     def status(self, references: int) -> ModelStatus:
         mode = device.mode()
@@ -187,7 +187,6 @@ def model_status(db: Database | None = None) -> ModelStatus:
     return VISION.status(refs)
 
 
-SPECK_AREA_PCT2 = 30  # boxes under 0.3% of the picture (30 in %×%) are specks when "ignore specks" is on
 
 
 def species_for(label: str, registry: set[str]) -> str:
@@ -405,7 +404,7 @@ class Jobs:
             rows = []
             for d in pic.detections:
                 box = _to_percent(d.box, pic.width, pic.height)
-                if req.ignore_specks and box.w * box.h < SPECK_AREA_PCT2:
+                if req.ignore_specks and box.w * box.h < VISION.cfg.detect.speck_max_area_pct * 100:  # %×% units
                     continue
                 sr = res.species[d.track_id]
                 rows.append((species_for(sr.label, registry), round(d.conf, 3), box,
@@ -428,7 +427,7 @@ class Jobs:
         self._remember_settings(job.survey_id, req)
         update(0, 0, "Loading the fish detector and species model")
         try:
-            analyser = VISION.analyser()
+            analyser = VISION.analyser(look_closer=req.look_closer)
         except ModelMissingError as e:
             raise RuntimeError(str(e)) from None
         index = ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name))
@@ -482,8 +481,8 @@ class Jobs:
 
     def _remember_settings(self, survey_id: int, req: AnalysisRequest):
         """Counting happens later (after a window is confirmed), with the settings the survey started with."""
-        self.db.run("UPDATE surveys SET enhance = ?, ignore_specks = ? WHERE id = ?",
-                    int(req.enhance), int(req.ignore_specks), survey_id)
+        self.db.run("UPDATE surveys SET enhance = ?, ignore_specks = ?, look_closer = ? WHERE id = ?",
+                    int(req.enhance), int(req.ignore_specks), int(req.look_closer), survey_id)
 
     # ── Counting at the subsample points, after a person confirmed the window ──
 
@@ -515,13 +514,13 @@ class Jobs:
             raise RuntimeError("Demo mode: no fish detector is installed, so the points can't be counted.")
         survey = self.db.one("SELECT * FROM surveys WHERE id = ?", v["survey_id"])
         req = AnalysisRequest(files=[v["path"]], enhance=bool(survey["enhance"]),
-                              ignore_specks=bool(survey["ignore_specks"]))
+                              ignore_specks=bool(survey["ignore_specks"]), look_closer=bool(survey["look_closer"]))
         window = AnalysisWindow(v["file_key"] or f"v{video_id}", v["window_start_s"], v["window_end_s"],
                                 v["confirmed_by"], datetime.now())
         for old in self.db.clear_video_counts(video_id):  # a re-confirmed window replaces the old count
             Path(old).unlink(missing_ok=True)
         self.db.set_count_state(video_id, "running", "Loading the models")
-        analyser = VISION.analyser()
+        analyser = VISION.analyser(look_closer=req.look_closer)
         out_dir = self.surveys_dir() / str(v["survey_id"])
         key = window.video_id
 

@@ -38,9 +38,11 @@ PROTOCOL_MIGRATIONS = [
     ("videos", "file_key", "TEXT NOT NULL DEFAULT ''"),
     ("videos", "count_state", "TEXT NOT NULL DEFAULT ''"),  # "" | "queued" | "running" | "done" | "failed"
     ("videos", "count_detail", "TEXT NOT NULL DEFAULT ''"),
+    ("videos", "short_window", "INTEGER NOT NULL DEFAULT 0"),  # shorter than the protocol window (not comparable)
     # The settings a survey started with, so counting after a window is confirmed uses the same ones.
     ("surveys", "enhance", "INTEGER NOT NULL DEFAULT 1"),
     ("surveys", "ignore_specks", "INTEGER NOT NULL DEFAULT 1"),
+    ("surveys", "look_closer", "INTEGER NOT NULL DEFAULT 0"),
     ("frames", "video_id", "INTEGER"),
     ("frames", "point_no", "INTEGER"),
     ("frames", "t_s", "REAL"),

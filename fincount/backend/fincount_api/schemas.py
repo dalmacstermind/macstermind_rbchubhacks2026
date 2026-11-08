@@ -144,6 +144,7 @@ class Video(Model):
     window_end_s: Optional[float] = None
     confirmed_by: str = ""
     confirmed_at: str = ""
+    short_window: bool = False  # shorter than the protocol window: counts not comparable with full windows
 
 
 class VideoWindowPatch(Model):
@@ -160,7 +161,8 @@ class AnalysisRequest(Model):
     threshold: float = Field(0.5, ge=0, le=1)
     sampling: Literal[1, 2, 5] = 1  # pictures per second of video
     enhance: bool = True  # clear up murky water
-    ignore_specks: bool = True  # drop tiny boxes (sediment, bubbles)
+    ignore_specks: bool = True  # drop tiny boxes (sediment, bubbles); size in app.yaml detect.speck_max_area_pct
+    look_closer: bool = False  # also search the full-resolution picture in tiles: more small fish, slower
     files: list[str] = Field(min_length=1)  # full paths on this computer
 
 
@@ -258,6 +260,7 @@ class PointOut(Model):
     edited_by: str = ""
     uncertain: int = 0
     outside: int = 0
+    stationary: int = 0  # objects that didn't move (pole markings, rocks, a resting fish?), not counted
     ai: AiPointCount  # the AI's counts, never changed
     clip: Optional[str] = None  # URL path of the ±context clip, e.g. "/points/3/clip"
 
@@ -275,6 +278,7 @@ class VideoOut(Model):
     proposed_reason: str = ""
     settled: Optional[bool] = None
     too_short: bool = False  # flagged: not processed
+    short_window: bool = False  # shorter than the protocol window (window.allow_short_videos)
     confirmed_by: str = ""
     count_state: str = ""  # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed"
     count_detail: str = ""

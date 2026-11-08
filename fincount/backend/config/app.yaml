@@ -34,6 +34,13 @@ detect:
   # Pictures per second read from each subsample point's ±context_s range (protocol.yaml). The
   # point's own moment is always included. More = better tracking, slower processing.
   context_fps: 5
+  # "Ignore tiny specks" drops boxes smaller than this % of the picture. 0.01 % is about 14×14 px in a
+  # 1920×1080 picture. (It was 0.3 %, which removed most real fish in 4K survey footage: they are
+  # about 60×20 px, 0.06 % of the picture.)
+  speck_max_area_pct: 0.01
+  # "Look closer for small fish" (a survey option): also search the full-resolution picture in a
+  # grid of overlapping tiles. Finds more small, distant fish; about grid×grid+1 times slower.
+  look_closer_grid: 2
 
 species:
   model_dir: bioclip-2      # BioCLIP 2 snapshot (open_clip format) inside models.dir
@@ -64,6 +71,13 @@ clarity:
   # from frames where staff recorded a category. Staff confirm the category; only that is exported.
   category_thresholds: [30, 50, 70]
   review_threshold: 25      # below this, the point needs review and gets a "low visibility" note
+
+# Objects that don't move during a point's context clip (pole markings, rocks, sometimes a resting
+# fish) are not counted automatically: the point needs review and a person decides (conservative).
+stationary:
+  min_sightings: 5          # seen in at least this many pictures…
+  min_span_s: 3             # …spread over at least this many seconds…
+  max_shift_pct: 0.5        # …and its centre never moved more than this % of the picture
 
 label:
   match_iou: 0.5            # a drawn box overlapping an existing fish this much relabels it (no double count)

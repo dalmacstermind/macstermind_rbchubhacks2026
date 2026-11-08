@@ -24,6 +24,7 @@ class WindowConfig:
     settle_threshold: float
     settle_scan_fps: float
     settle_hold_s: float
+    allow_short_videos: bool  # propose a shorter window for videos under trim + length + trim
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ def load_protocol_config(path: Path | None = None) -> ProtocolConfig:
             settle_threshold=_num(window, "window.settle_threshold", path, minimum=0, strict=True),
             settle_scan_fps=_num(window, "window.settle_scan_fps", path, minimum=0, strict=True),
             settle_hold_s=_num(window, "window.settle_hold_s", path, minimum=0),
+            allow_short_videos=_bool(window, "window.allow_short_videos", path),
         ),
         subsample=SubsampleConfig(
             interval_s=_num(sub, "subsample.interval_s", path, minimum=0, strict=True),
@@ -180,6 +182,13 @@ def _num(section: dict[str, Any], key: str, path: Path, *, minimum: float, stric
     return float(value)
 
 
+def _bool(section: dict[str, Any], key: str, path: Path) -> bool:
+    value = section.get(key.split(".")[-1])
+    if not isinstance(value, bool):
+        raise ConfigError(f"{path.name}: {key} must be true or false (got {value!r}).")
+    return value
+
+
 def _text(section: dict[str, Any], key: str, path: Path) -> str:
     value = section.get(key.split(".")[-1])
     if not isinstance(value, str) or not value.strip():
@@ -203,6 +212,8 @@ class DetectConfig:
     nms_iou: float
     min_box_px: float
     context_fps: float  # pictures per second read from each point's ±context_s range
+    speck_max_area_pct: float  # "ignore tiny specks": boxes under this % of the picture are dropped
+    look_closer_grid: int  # "look closer for small fish": tiles per side on the full-resolution picture
 
 
 @dataclass(frozen=True)
@@ -232,6 +243,13 @@ class ClarityConfig:
 
 
 @dataclass(frozen=True)
+class StationaryConfig:
+    min_sightings: int
+    min_span_s: float
+    max_shift_pct: float
+
+
+@dataclass(frozen=True)
 class LabelConfig:
     match_iou: float  # a drawn box overlapping an existing fish this much relabels it instead of adding one
 
@@ -244,6 +262,7 @@ class VisionConfig:
     track: TrackConfig
     clarity: ClarityConfig
     label: LabelConfig
+    stationary: StationaryConfig
 
 
 CLARITY_MEASURES = ("contrast", "sharpness", "haze", "colour", "particles")
@@ -253,8 +272,9 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
     """Model locations and thresholds for detection, species ID, tracking and the clarity index."""
     path = path or default_config_dir() / "app.yaml"
     data = _read(path)
-    models, det, sp, trk, clar, lab = (_section(data, n, path)
-                                       for n in ("models", "detect", "species", "track", "clarity", "label"))
+    models, det, sp, trk, clar, lab, stat = (_section(data, n, path) for n in
+                                             ("models", "detect", "species", "track", "clarity", "label",
+                                              "stationary"))
     thresholds = clar.get("category_thresholds")
     if (not isinstance(thresholds, list) or not thresholds
             or not all(isinstance(t, (int, float)) and 0 <= t <= 100 for t in thresholds)
@@ -280,6 +300,8 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             nms_iou=_num(det, "detect.nms_iou", path, minimum=0, strict=True),
             min_box_px=_num(det, "detect.min_box_px", path, minimum=0),
             context_fps=_num(det, "detect.context_fps", path, minimum=0, strict=True),
+            speck_max_area_pct=_num(det, "detect.speck_max_area_pct", path, minimum=0),
+            look_closer_grid=int(_num(det, "detect.look_closer_grid", path, minimum=1)),
         ),
         species=SpeciesConfig(
             model_dir=models_dir / _text(sp, "species.model_dir", path),
@@ -299,6 +321,11 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
         clarity=ClarityConfig(weights=w, category_thresholds=tuple(float(t) for t in thresholds),
                               review_threshold=_num(clar, "clarity.review_threshold", path, minimum=0)),
         label=LabelConfig(match_iou=_num(lab, "label.match_iou", path, minimum=0, strict=True)),
+        stationary=StationaryConfig(
+            min_sightings=int(_num(stat, "stationary.min_sightings", path, minimum=2)),
+            min_span_s=_num(stat, "stationary.min_span_s", path, minimum=0),
+            max_shift_pct=_num(stat, "stationary.max_shift_pct", path, minimum=0),
+        ),
     )
     for key, value in (("detect.conf_threshold", cfg.detect.conf_threshold), ("detect.nms_iou", cfg.detect.nms_iou),
                        ("species.match_threshold", cfg.species.match_threshold),

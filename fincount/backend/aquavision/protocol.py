@@ -37,6 +37,7 @@ class WindowProposal:
     settled: bool | None       # False: sediment still unsettled at the latest allowed start; None: not checked
     too_short: bool
     settle_score: float | None  # median sediment score just after the proposed start (lower = clearer)
+    short: bool = False         # shorter than the protocol window (window.allow_short_videos): not comparable
 
 
 @dataclass
@@ -77,6 +78,8 @@ def propose_window(video_path: Path, protocol: ProtocolConfig, app: AppConfig) -
     w = protocol.window
     info = probe_video(video_path)
     needed = w.trim_start_s + w.length_s + w.trim_end_s
+    if info.duration_s + 1 / info.fps < needed and w.allow_short_videos:
+        return _short_proposal(info.duration_s, w)
     if info.duration_s + 1 / info.fps < needed:
         return WindowProposal(None, None, f"Too short for the protocol: the video is {_mmss(info.duration_s)} long "
                               f"but needs at least {_mmss(needed)} ({w.trim_start_s:g} s + {_mmss(w.length_s)} + "
@@ -119,9 +122,38 @@ def propose_window(video_path: Path, protocol: ProtocolConfig, app: AppConfig) -
                           round(median(around), 3) if around else None)
 
 
+def _short_proposal(duration_s: float, w: WindowConfig) -> WindowProposal:
+    """A video shorter than the protocol needs (window.allow_short_videos): propose the usable clip.
+
+    The start and end are still discarded when the video is long enough to keep something in between;
+    otherwise the whole clip is proposed. Either way it is flagged as a shorter window: its counts are
+    not comparable with full protocol windows, and a person must still confirm it.
+    """
+    if duration_s - w.trim_start_s - w.trim_end_s >= 1:
+        start, end = w.trim_start_s, duration_s - w.trim_end_s
+        how = f"the first {w.trim_start_s:g} s and last {w.trim_end_s:g} s are still left out"
+    else:
+        start, end = 0.0, duration_s
+        how = "it's too short to leave out the start and end, so the whole video is used"
+    needed = w.trim_start_s + w.length_s + w.trim_end_s
+    reason = (f"Shorter than the protocol window: the video is {_mmss(duration_s)} long and the protocol needs "
+              f"{_mmss(needed)}. Proposed {_mmss(start)}–{_mmss(end)} ({how}). Counts from a shorter window "
+              "aren't comparable with full 15-minute windows. Check the video before confirming.")
+    return WindowProposal(round(start, 3), round(end, 3), reason, None, False, None, short=True)
+
+
 def validate_window(start_s: float, end_s: float, duration_s: float, fps: float, cfg: WindowConfig) -> None:
     """Protocol rules for a confirmed window. Raises WindowError with a plain-English reason."""
     tol = 1 / fps  # one frame either way
+    if cfg.allow_short_videos and duration_s + tol < cfg.trim_start_s + cfg.length_s + cfg.trim_end_s:
+        # A video shorter than the protocol: any part of it, at most window.length_s long.
+        if end_s <= start_s:
+            raise WindowError("The window must end after it starts.")
+        if start_s < -tol or end_s > duration_s + tol:
+            raise WindowError(f"The window must be inside the video (00:00.0–{_mmss(duration_s)}).")
+        if end_s - start_s > cfg.length_s + tol:
+            raise WindowError(f"The window can't be longer than {_mmss(cfg.length_s)}.")
+        return
     latest = cfg.trim_start_s + cfg.max_extra_settle_s
     must_end_by = duration_s - cfg.trim_end_s
     if end_s <= start_s:

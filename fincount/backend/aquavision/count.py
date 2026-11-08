@@ -13,13 +13,15 @@ Pure functions: the caller gathers sightings and labels from the database, these
 - Species richness = distinct species seen anywhere in the analysis window (points + the sparse
   full-window scan), counting only sure or confirmed fish.
 - Fish and invertebrates are counted separately; unidentified fish go to `unknown`.
+- Objects that never move during the context clip (pole markings, rocks, sometimes a resting fish)
+  are not counted automatically: the point needs review (settings in app.yaml, `stationary`).
 """
 from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, field
 
-from .config import ClarityConfig, ProtocolConfig
+from .config import ClarityConfig, ProtocolConfig, StationaryConfig
 
 _EPS = 1e-6
 
@@ -31,6 +33,7 @@ class Sighting:
     track_id: str
     t_s: float
     conf: float
+    box: tuple[float, float, float, float] | None = None  # x, y, w, h in % of the picture (for stationary)
 
 
 @dataclass
@@ -61,6 +64,7 @@ class PointCount:
     needs_review: bool
     uncertain: int = 0  # possible fish within the tolerance window, below the threshold and unconfirmed
     outside: int = 0  # fish seen in the context clip but only outside the tolerance window
+    stationary: int = 0  # objects that never moved during the clip, waiting for a person (not counted)
 
 
 @dataclass
@@ -99,6 +103,18 @@ def _is_sure(sightings: list[Sighting], label: TrackLabel, threshold: float) -> 
     return label.human or any(s.conf >= threshold for s in sightings)
 
 
+def is_stationary(seen: list[Sighting], cfg: StationaryConfig | None) -> bool:
+    """Seen in many pictures over several seconds, and its centre never moved (in % of the picture)."""
+    if cfg is None:
+        return False
+    boxes = [s for s in seen if s.box is not None]
+    if len(boxes) < cfg.min_sightings or max(s.t_s for s in boxes) - min(s.t_s for s in boxes) < cfg.min_span_s:
+        return False
+    cx = [s.box[0] + s.box[2] / 2 for s in boxes]
+    cy = [s.box[1] + s.box[3] / 2 for s in boxes]
+    return max(cx) - min(cx) <= cfg.max_shift_pct and max(cy) - min(cy) <= cfg.max_shift_pct
+
+
 def suggested_visibility(clarity: float | None, cfg: ClarityConfig, categories: tuple[str, ...]) -> str | None:
     """Visibility category suggested from the clarity index (staff confirm it; only that is exported)."""
     if clarity is None:
@@ -110,13 +126,14 @@ def suggested_visibility(clarity: float | None, cfg: ClarityConfig, categories: 
 def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: list[Sighting],
                 labels: dict[str, TrackLabel], threshold: float, protocol: ProtocolConfig,
                 clarity_values: list[float], clarity_cfg: ClarityConfig,
-                previous_suggestion: str | None = None) -> PointCount:
+                previous_suggestion: str | None = None,
+                stationary_cfg: StationaryConfig | None = None) -> PointCount:
     """Count one subsample point from the sightings in its context clip."""
     tol = protocol.count.effective_tolerance_s
     by_track: dict[str, list[Sighting]] = {}
     for s in sightings:
         by_track.setdefault(s.track_id, []).append(s)
-    tally, uncertain, outside = _Tally(), 0, 0
+    tally, uncertain, outside, still = _Tally(), 0, 0, 0
     for tid, seen in by_track.items():
         label = labels.get(tid, TrackLabel("fish", None, False))
         if label.kind == "not_organism":
@@ -124,6 +141,8 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
         near = [s for s in seen if abs(s.t_s - timestamp_s) <= tol + _EPS]
         if not near:
             outside += 1
+        elif not label.human and is_stationary(seen, stationary_cfg):
+            still += 1
         elif _is_sure(near, label, threshold):
             tally.add(label)
         else:
@@ -138,6 +157,10 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
     if uncertain:
         notes.append(f"{uncertain} possible fish below the certainty threshold need checking (not counted)")
         review = True
+    if still:
+        notes.append(f"{still} object{'s' if still != 1 else ''} that didn't move (pole markings, rocks or a "
+                     "resting fish?) need checking (not counted)")
+        review = True
     if clarity is not None and clarity < clarity_cfg.review_threshold:
         notes.append("low visibility")
         review = True
@@ -146,7 +169,7 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
         review = True
     return PointCount(video_id, point_no, timestamp_s, tally.total_fish, tally.invertebrates, tally.per_species,
                       tally.unknown, len(tally.per_species), None, clarity, suggestion, "; ".join(notes), review,
-                      uncertain, outside)
+                      uncertain, outside, still)
 
 
 def mean_count(points: list[PointCount], totals: list[int] | None = None) -> float | None:

@@ -13,6 +13,10 @@ window:
   settle_threshold: 0.6     # settled when frame change ÷ contrast stays below this
   settle_scan_fps: 2        # frames per second read while checking for sediment
   settle_hold_s: 10         # must stay below the threshold this long to count as settled
+  # Videos shorter than trim_start_s + length_s + trim_end_s (17 min). true: the whole usable clip is
+  # proposed as a SHORTER window (flagged everywhere, counts not comparable with full windows);
+  # false: such videos are flagged "too short" and not processed.
+  allow_short_videos: true
 
 subsample:
   interval_s: 60            # one point every 60 s -> 15 points in a 15 min window

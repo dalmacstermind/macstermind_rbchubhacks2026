@@ -51,6 +51,11 @@ export function WindowConfirm({
         ) : (
           <Chip tone="review">Not confirmed: nothing is counted yet</Chip>
         )}
+        {v.shortWindow && (
+          <Chip tone="review" icon="↔">
+            Shorter than the protocol window: not comparable with full windows
+          </Chip>
+        )}
         {v.countState === "queued" || v.countState === "running" ? (
           <Chip tone="working">{v.countDetail || "Counting…"}</Chip>
         ) : v.countState === "failed" ? (

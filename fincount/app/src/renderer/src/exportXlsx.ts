@@ -41,9 +41,11 @@ export function videoRows(videos: Video[]): (string | number)[][] {
       ? "Too short for the protocol (flagged, not processed)"
       : !confirmed
         ? "Window not confirmed"
-        : v.settled === false
-          ? "Confirmed (sediment looked unsettled at the proposed start)"
-          : "Confirmed";
+        : v.shortWindow
+          ? "Confirmed (shorter than the protocol window: not comparable with full windows)"
+          : v.settled === false
+            ? "Confirmed (sediment looked unsettled at the proposed start)"
+            : "Confirmed";
     return [
       v.fileName,
       mmss(v.durationS),

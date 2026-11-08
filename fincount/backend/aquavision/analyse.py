@@ -116,11 +116,24 @@ def _crop_quality(img: np.ndarray, d: Detection) -> float:
 class Analyser:
     """Runs the vision models over one file. Models are created once and reused for every file."""
 
-    def __init__(self, cfg: VisionConfig, detector: Detector, encoder=None, max_width: int = 1920):
+    def __init__(self, cfg: VisionConfig, detector: Detector, encoder=None, max_width: int = 1920,
+                 look_closer: bool = False):
         self.cfg = cfg
         self.detector = detector
         self.encoder = encoder  # BioClipEncoder, or None when the species model isn't installed
         self.max_width = max_width
+        self.look_closer = look_closer  # tiled search on the full-resolution picture (slower)
+
+    def _detect(self, raw: np.ndarray, img: np.ndarray, frame_idx: int, t_s: float, enhance: bool):
+        """Detections in `img` (the picture staff see). With look_closer, searched in `raw` (full size)."""
+        tiled = getattr(self.detector, "detect_tiled", None)
+        if not self.look_closer or tiled is None:
+            return self.detector.detect(img, frame_idx, t_s, enhance=enhance)
+        scale = img.shape[1] / raw.shape[1]
+        dets = tiled(raw, self.cfg.detect.look_closer_grid, frame_idx, t_s, enhance=enhance)
+        for d in dets:
+            d.box = tuple(v * scale for v in d.box)
+        return [d for d in dets if min(d.box[2] - d.box[0], d.box[3] - d.box[1]) >= self.cfg.detect.min_box_px]
 
     # ── shared steps ──
 
@@ -134,7 +147,7 @@ class Analyser:
             if cancelled():
                 raise Cancelled
             img = _fit(raw, self.max_width)
-            dets = self.detector.detect(img, frame_idx, t_s, enhance=enhance)
+            dets = self._detect(raw, img, frame_idx, t_s, enhance)
             dets = tracker.update(dets) if tracker else image_tracks(image_key, dets)
             for old, new in (tracker.relinked.items() if tracker else ()):
                 if old in crops:  # a first sighting joined a track: move its crops there too

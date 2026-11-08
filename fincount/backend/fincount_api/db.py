@@ -294,10 +294,10 @@ class Database(ProtocolStore):
                   proposal: WindowProposal) -> int:
         return self.run(
             "INSERT INTO videos (survey_id, file_name, path, duration_s, fps, proposed_start_s, proposed_end_s, "
-            "proposed_reason, settled, too_short, settle_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "proposed_reason, settled, too_short, settle_score, short_window) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             survey_id, file_name, path, duration_s, fps, proposal.start_s, proposal.end_s, proposal.reason,
             None if proposal.settled is None else int(proposal.settled), int(proposal.too_short),
-            proposal.settle_score)
+            proposal.settle_score, int(proposal.short))
 
     @staticmethod
     def _video(r) -> Video:
@@ -306,7 +306,8 @@ class Database(ProtocolStore):
                      proposed_end_s=r["proposed_end_s"], proposed_reason=r["proposed_reason"],
                      settled=None if r["settled"] is None else bool(r["settled"]), too_short=bool(r["too_short"]),
                      settle_score=r["settle_score"], window_start_s=r["window_start_s"],
-                     window_end_s=r["window_end_s"], confirmed_by=r["confirmed_by"], confirmed_at=r["confirmed_at"])
+                     window_end_s=r["window_end_s"], confirmed_by=r["confirmed_by"], confirmed_at=r["confirmed_at"],
+                     short_window=bool(r["short_window"]))
 
     def list_videos(self, survey_id: int) -> list[Video] | None:
         if not self.one("SELECT 1 FROM surveys WHERE id = ?", survey_id):

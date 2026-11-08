@@ -129,6 +129,11 @@ Times are checked against the protocol: start no earlier than the trim (60 s), n
 plus extra settling time (300 s), exactly the window length (900 s, one frame either way), and ending
 before the last 60 s of the video.
 
+Videos shorter than trim + window + trim (17 min) get a **shorter window** over the usable clip
+(`shortWindow: true`, `window.allow_short_videos: true` in `protocol.yaml`, the default): any part of the
+video, at most 15 min, still confirmed by a person, and flagged as not comparable with full windows.
+With `allow_short_videos: false` they are flagged `tooShort` and not processed.
+
 ### Blind QC
 
 | Method | Path | Body | Returns |
@@ -166,7 +171,8 @@ AnalysisRequest{
                     threshold: number,          // 0–1: below this, staff must check before it counts
                     sampling: 1 | 2 | 5,        // pictures per second of video
                     enhance: boolean,           // clear up murky water
-                    ignoreSpecks: boolean,      // drop boxes smaller than 0.3% of the picture
+                    ignoreSpecks: boolean,      // drop boxes smaller than detect.speck_max_area_pct (app.yaml, 0.01 %) of the picture
+                    lookCloser: boolean,        // also search the full-size picture in tiles: more small fish, ~5× slower
                     files: string[]            // full paths on this computer (the app sends paths, not uploads)
                 }
 
@@ -200,7 +206,8 @@ Video          { id: string, surveyId: number, fileName: string, durationS: numb
                  proposedStartS: number | null, proposedEndS: number | null, proposedReason: string,
                  settled: boolean | null, tooShort: boolean, settleScore: number | null,
                  windowStartS: number | null, windowEndS: number | null,   // null until a person confirms
-                 confirmedBy: string, confirmedAt: string }
+                 confirmedBy: string, confirmedAt: string,
+                 shortWindow: boolean }          // shorter than the protocol window (not comparable)
 
 Frame          {
                     id: string,
@@ -253,7 +260,8 @@ VideoResult    {
                     id, name, recordedAt, transect, stat,
                     windowStartS, windowEndS: number | null,   // confirmed by a person; null until then
                     proposedStartS, proposedEndS: number | null, proposedReason: string, settled: boolean | null,
-                    tooShort: boolean,          // flagged: not processed
+                    tooShort: boolean,          // flagged: not processed (only when window.allow_short_videos is false)
+                    shortWindow: boolean,       // shorter than the protocol window: counts not comparable with full windows
                     confirmedBy: string,
                     countState: "" | "queued" | "running" | "done" | "failed",   // "" = waiting for confirmation
                     countDetail: string,
@@ -273,6 +281,7 @@ PointResult    {
                     clarityIndex, suggestedVisibility, visibility,   // visibility = confirmed by staff
                     notes, staffNotes, needsReview, reviewed, editedBy,
                     uncertain, outside,         // not counted: below the threshold / outside ±tolerance
+                    stationary,                 // not counted: objects that never moved (pole markings, rocks, a resting fish?)
                     ai: { totalFish, invertebrates },   // never changed
                     clip: string | null         // "/points/3/clip"
                 }
