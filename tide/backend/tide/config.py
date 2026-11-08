@@ -299,6 +299,9 @@ class SpeciesConfig:
     crop_padding: float
     min_crop_px: float
     seed_dir: Path  # default reference pictures (downloaded by tide.fetch_reference_images), inside models.dir
+    # Name every fish after its closest species in the list (its top match), instead of "Unknown" when
+    # no species is clearly ahead. Staff can still relabel any fish.
+    best_match: bool = True
 
 
 @dataclass(frozen=True)
@@ -308,6 +311,10 @@ class TrackConfig:
     match_iou: float
     activation_threshold: float
     tracker: str  # "bytetrack" | "ocsort"
+    # Pieces of one fish's track (the tracker lost it for a moment, or motion found it in parts) are
+    # joined when the next piece starts within merge_gap_s, no more than merge_distance box sizes away.
+    merge_gap_s: float = 1.0
+    merge_distance: float = 1.5
 
 
 @dataclass(frozen=True)
@@ -367,6 +374,17 @@ class StationaryConfig:
 
 
 @dataclass(frozen=True)
+class FixedStructureConfig:
+    """Things fixed in view for the whole video (the survey pole, its markings, rope, rocks): never fish."""
+
+    enabled: bool = True
+    min_share: float = 0.6  # boxed in at least this share of all the pictures searched in the video…
+    min_pictures: int = 5  # …and in at least this many of them…
+    match_iou: float = 0.5  # (boxes overlapping this much are the same place)
+    max_shift_pct: float = 1.0  # …and the box's centre never moved more than this % of the picture
+
+
+@dataclass(frozen=True)
 class LabelConfig:
     match_iou: float  # a drawn box overlapping an existing fish this much relabels it instead of adding one
 
@@ -384,6 +402,20 @@ class VisionConfig:
     quality: QualityConfig
     static_filter: StaticFilterConfig
     drift: DriftConfig
+    fixed_structure: FixedStructureConfig = FixedStructureConfig()
+
+
+def _fixed_structure(sec: dict[str, Any], path: Path) -> FixedStructureConfig:
+    d = FixedStructureConfig()
+    sec = {"enabled": d.enabled, "min_share": d.min_share, "min_pictures": d.min_pictures, "match_iou": d.match_iou,
+           "max_shift_pct": d.max_shift_pct, **sec}
+    return FixedStructureConfig(
+        enabled=_bool(sec, "fixed_structure.enabled", path),
+        min_share=_num(sec, "fixed_structure.min_share", path, minimum=0, strict=True),
+        min_pictures=int(_num(sec, "fixed_structure.min_pictures", path, minimum=2)),
+        match_iou=_num(sec, "fixed_structure.match_iou", path, minimum=0, strict=True),
+        max_shift_pct=_num(sec, "fixed_structure.max_shift_pct", path, minimum=0),
+    )
 
 
 CLARITY_MEASURES = ("contrast", "sharpness", "haze", "colour", "particles")
@@ -433,6 +465,7 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             crop_padding=_num(sp, "species.crop_padding", path, minimum=0),
             min_crop_px=_num(sp, "species.min_crop_px", path, minimum=1),
             seed_dir=models_dir / _text(sp, "species.seed_dir", path),
+            best_match=_bool({"best_match": True, **sp}, "species.best_match", path),
         ),
         track=TrackConfig(
             enabled=enabled,
@@ -440,6 +473,8 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             match_iou=_num(trk, "track.match_iou", path, minimum=0, strict=True),
             activation_threshold=_num(trk, "track.activation_threshold", path, minimum=0),
             tracker=_choice(trk, "track.tracker", path, ("bytetrack", "ocsort")),
+            merge_gap_s=_num({"merge_gap_s": 1.0, **trk}, "track.merge_gap_s", path, minimum=0),
+            merge_distance=_num({"merge_distance": 1.5, **trk}, "track.merge_distance", path, minimum=0),
         ),
         clarity=ClarityConfig(weights=w, category_thresholds=tuple(float(t) for t in thresholds),
                               review_threshold=_num(clar, "clarity.review_threshold", path, minimum=0)),
@@ -483,6 +518,7 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             flag_threshold=_num(dr, "drift.flag_threshold", path, minimum=0),
             min_background_motion_px=_num(dr, "drift.min_background_motion_px", path, minimum=0),
         ),
+        fixed_structure=_fixed_structure(data.get("fixed_structure") or {}, path),
     )
     q = cfg.quality
     if not q.clear_min_score >= q.moderate_min_score >= q.muddy_min_score:

@@ -13,7 +13,7 @@ export type Prefs = {
 };
 
 export const DEFAULT_PREFS: Prefs = {
-  threshold: 0.5,
+  threshold: 0.4,
   sampling: 1,
   enhance: true,
   ignoreSpecks: true,

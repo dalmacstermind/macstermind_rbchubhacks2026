@@ -439,11 +439,12 @@ function ExportCheck({
 export function EditSurvey({ data, onClose, onSaved }: { data: SurveyData; onClose: () => void; onSaved: () => void }) {
   const [site, setSite] = useState(data.survey.site);
   const [date, setDate] = useState(data.survey.surveyDate);
+  const [sure, setSure] = useState(Math.round(data.survey.threshold * 100));
   const [error, setError] = useState("");
   const save = async () => {
     if (date > today()) return setError(FUTURE_DATE_MESSAGE);
     try {
-      await api.surveys.update(data.survey.id, { site, surveyDate: date });
+      await api.surveys.update(data.survey.id, { site, surveyDate: date, threshold: sure / 100 });
       onSaved();
       onClose();
     } catch (e) {
@@ -477,6 +478,20 @@ export function EditSurvey({ data, onClose, onSaved }: { data: SurveyData; onClo
             max={today()}
             onChange={(e) => setDate(e.target.value)}
           />
+        </Field>
+        <Field label={`Count a fish automatically when TIDE is at least ${sure}% sure`}>
+          <input
+            type="range"
+            min={10}
+            max={95}
+            step={5}
+            className="w-full"
+            value={sure}
+            onChange={(e) => setSure(Number(e.target.value))}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Less sure finds wait for a person in "Check the fish". Counts update straight away.
+          </p>
         </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>

@@ -9,6 +9,10 @@ Videos follow the protocol (CLAUDE.md, Protocol rules):
   3. Species richness: a sparse scan of the whole window at richness.scan_fps.
 Images: the image itself, once (never tracked, never in MeanCount).
 
+One organism is counted once: pieces of a track are joined (track.merge_fragments), motion finds of a
+fish the detector also boxed join the detector's track, and things fixed in view for the whole video
+(the survey pole, its markings, rocks) are removed before species ID (fixed.py).
+
 Species are decided per tracked organism, not per picture: the best few crops of each track are
 embedded with BioCLIP 2 and matched against the registry's reference pictures.
 """
@@ -36,7 +40,8 @@ from .static_filter import StaticFilter
 from .protocol import (AnalysisWindow, _require_confirmed, context_range, plan_short_window_points,
                        plan_subsample_points)
 from .species import ReferenceIndex, SpeciesResult, crop_box, match
-from .track import VideoTracker, image_tracks
+from .fixed import find_fixed, on_fixed
+from .track import VideoTracker, image_tracks, merge_fragments
 
 log = logging.getLogger(__name__)
 
@@ -216,23 +221,70 @@ class Analyser:
         if not found.boxes or len(greys) != len(pictures):
             return
         images: dict[int, np.ndarray] = {}
+        placed = []  # (motion box, picture, box in picture pixels, detector track there or None)
+        same: dict[int, str] = {}  # motion track -> the detector's track for the same fish
         for mb in found.boxes:
             pic = pictures[mb.frame_index]
             s = pic.width / self.cfg.motion.work_width
             x1, y1, x2, y2 = (max(0.0, v * s) for v in mb.box)
             x2, y2 = min(x2, pic.width), min(y2, pic.height)
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-            if any(d.box[0] <= cx <= d.box[2] and d.box[1] <= cy <= d.box[3] for d in pic.detections):
+            hit = next((d.track_id for d in pic.detections
+                        if d.box[0] <= cx <= d.box[2] and d.box[1] <= cy <= d.box[3]), None)
+            if hit is not None:
+                same.setdefault(mb.track, hit)
+            placed.append((mb, pic, (x1, y1, x2, y2), hit))
+        for mb, pic, (x1, y1, x2, y2), hit in placed:
+            if hit is not None:
                 continue  # the detector already has this fish
-            d = Detection(pic.frame_idx, pic.t_s, (x1, y1, x2, y2), "fish", self.cfg.motion.confidence,
-                          f"{key}-m{mb.track}")
+            tid = same.get(mb.track, f"{key}-m{mb.track}")  # seen by the detector elsewhere: the same fish
+            if tid in {d.track_id for d in pic.detections}:
+                continue  # that fish already has a box in this picture
+            d = Detection(pic.frame_idx, pic.t_s, (x1, y1, x2, y2), "fish", self.cfg.motion.confidence, tid)
             pic.detections.append(d)
             if mb.frame_index not in images:
                 images[mb.frame_index] = read_image(pic.image_path)
             c = crop_box(images[mb.frame_index], d.box, max(self.cfg.species.crop_padding, 0.5), 4)
+            if c is not None and d.track_id not in crops:
+                crops[d.track_id] = _TrackCrops(limit=CROPS_PER_MOTION_TRACK)
             if c is not None:
-                crops.setdefault(d.track_id, _TrackCrops(limit=CROPS_PER_MOTION_TRACK)).add(
-                    _crop_quality(images[mb.frame_index], d), c)
+                crops[d.track_id].add(_crop_quality(images[mb.frame_index], d), c)
+
+    def _join_pieces(self, pictures: list[Picture], crops: dict[str, _TrackCrops], drifting: set[str]) -> None:
+        """One organism, one track: join the pieces of each track in these pictures (one point or the scan)."""
+        joined = merge_fragments([d for p in pictures for d in p.detections], self.cfg.track.merge_gap_s,
+                                 self.cfg.track.merge_distance)
+        for old, new in joined.items():
+            for q, c in crops.pop(old, _TrackCrops()).crops:
+                crops.setdefault(new, _TrackCrops()).add(q, c)
+            if old in drifting:  # part of it moved like the water: a person checks the whole organism
+                drifting.discard(old)
+                drifting.add(new)
+
+    def _remove_fixed(self, pictures: list[Picture], searched: dict[int, list[Detection]],
+                      crops: dict[str, _TrackCrops]) -> list[Picture]:
+        """Remove boxes on things fixed in view for the whole video (fixed.py). Returns the pictures kept."""
+        if not pictures:
+            return pictures
+        fixed = find_fixed(searched, pictures[0].width, self.cfg.fixed_structure)
+        if not fixed:
+            return pictures
+        removed = 0
+        for pic in pictures:
+            keep = [d for d in pic.detections if not on_fixed(d, fixed, self.cfg.fixed_structure)]
+            removed += len(pic.detections) - len(keep)
+            pic.detections = keep
+        left = {d.track_id for p in pictures for d in p.detections}
+        for tid in [t for t in crops if t not in left]:
+            del crops[tid]
+        kept = []
+        for pic in pictures:  # richness-scan pictures are only kept when something is in them
+            if pic.role == "scan" and not pic.detections:
+                pic.image_path.unlink(missing_ok=True)
+            else:
+                kept.append(pic)
+        log.info("Removed %s boxes on %s fixed things in view (pole, markings, rocks)", removed, len(fixed))
+        return kept
 
     def _identify(self, pictures: list[Picture], crops: dict[str, _TrackCrops], index: ReferenceIndex,
                   cancelled: Callable[[], bool], on_progress: Callable[[float], None] | None = None):
@@ -346,6 +398,7 @@ class Analyser:
                                    cancelled, tick, drift, seen)
                 drifting.update(drift.drifting())
                 self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
+                self._join_pieces(pictures[first:], crops, drifting)
                 clip_jobs.append((len(points), clip_writer.submit(
                     save_clip, path, start, end, p.clip_path, app.clips, preroll_s=app.frames.seek_preroll_s)))
                 points.append(PointPlan(p.point_no, p.timestamp_s, p.clip_path))
@@ -357,6 +410,8 @@ class Analyser:
             self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
                                file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
                                None, False, cancelled, tick, seen=seen)
+            self._join_pieces([p for p in pictures if p.role == "scan"], crops, drifting)
+            pictures = self._remove_fixed(pictures, {f: dets for f, (_, dets) in seen.items()}, crops)
             species, vectors, best = self._identify(pictures, crops, index, cancelled,
                                                     lambda f: on_progress(SEARCH_SHARE + (0.98 - SEARCH_SHARE) * f))
             clip_writer.shutdown(wait=True)

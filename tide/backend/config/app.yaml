@@ -54,6 +54,10 @@ species:
   # models.dir, in the repo through Git LFS. The list of photos, credits and checksums is
   # config/reference_seed.json. TIDE adds them to the Species Registry on first start.
   seed_dir: reference-seed
+  # true: every fish gets its closest species in the list (the top match), so staff don't have to
+  # name thousands of fish by hand. Similarity is still shown and any fish can be relabelled.
+  # false: only clear matches are named; the rest stay "Unknown" for the Label page.
+  best_match: true
 
 track:
   enabled: true             # ByteTrack across the sampled pictures of each video
@@ -61,6 +65,10 @@ track:
   match_iou: 0.2            # box overlap needed to continue a track
   activation_threshold: 0.35  # a box must be at least this sure to start a new track
   tracker: bytetrack        # default tracker: bytetrack | ocsort (a survey can choose the other one)
+  # One fish counted once: pieces of a track are joined when the next piece starts within this many
+  # seconds, no more than merge_distance box sizes from where the last piece ended.
+  merge_gap_s: 1.0
+  merge_distance: 1.5
 
 clarity:
   # Clarity index (0–100) = weighted mean of these image measures, each scaled to 0–1.
@@ -83,6 +91,15 @@ stationary:
   min_sightings: 5          # seen in at least this many pictures…
   min_span_s: 3             # …spread over at least this many seconds…
   max_shift_pct: 0.5        # …and its centre never moved more than this % of the picture
+
+# Things fixed in view for the whole video (the survey pole and its markings, rope, rocks) are not
+# fish: boxes that stay in the same place in most of the video's pictures are removed before counting.
+fixed_structure:
+  enabled: true
+  min_share: 0.6            # boxed in at least 60 % of all the pictures searched in the video…
+  min_pictures: 5           # …and in at least 5 of them…
+  match_iou: 0.5            # (boxes overlapping this much are the same place)
+  max_shift_pct: 1.0        # …and the centre never moved more than 1 % of the picture
 
 # Moving fish the detector misses (stationary cameras): see tide/motion.py. Distances are pixels
 # of a picture work_width wide. UNCALIBRATED: check candidates on the Label page before trusting them.

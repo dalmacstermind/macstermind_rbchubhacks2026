@@ -409,7 +409,15 @@ export function ReviewView({
                   species={species}
                   onPick={(id) => apply({ speciesId: id, verified: true })}
                 />
-                {det.speciesId !== NOT_FISH && !det.verified && (
+                {det.speciesId !== NOT_FISH && !det.verified && !needsReview(det, threshold) && (
+                  <p className="mt-4">
+                    <Chip tone="done">
+                      Counted automatically: TIDE was at least {Math.round(threshold * 100)}% sure. Pick another
+                      answer only if it's wrong.
+                    </Chip>
+                  </p>
+                )}
+                {det.speciesId !== NOT_FISH && !det.verified && needsReview(det, threshold) && (
                   <button
                     onClick={() => apply({ speciesId: det.speciesId, verified: true })}
                     className={`${btnPrimary} mt-4 w-full`}
