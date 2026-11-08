@@ -25,7 +25,8 @@ export function VideoResultCard({
   const toReview = v.points.filter((p) => p.needsReview && !p.reviewed).length;
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-5">
+    // The id lets the report's "Show me" button scroll to a video whose window still needs confirming.
+    <div id={`video-${v.id}`} className="scroll-mt-4 rounded-2xl border border-border bg-card p-5">
       {editing && (
         <PointEditor
           point={editing}

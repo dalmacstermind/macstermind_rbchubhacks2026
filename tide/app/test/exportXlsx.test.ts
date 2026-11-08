@@ -91,6 +91,7 @@ describe("Videos sheet", () => {
         status: "done",
         protocol: PROTOCOL_DEFAULTS,
         protocolRecorded: true,
+        windowsToConfirm: 0,
       },
       frames: [],
     };

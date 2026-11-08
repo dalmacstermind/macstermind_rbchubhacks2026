@@ -83,6 +83,10 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 Nothing is counted until a person confirms the video's analysis window (`PATCH /videos/{id}`, below):
 confirming starts the point counting in the background (`countState` in the results), and confirming
 a different window counts again from scratch. Videos too short for the protocol are flagged, not counted.
+Counting can be stopped (`POST /videos/{id}/count/stop`) and started again on the same confirmed window
+(`POST /videos/{id}/count`). Nothing of a stopped count is saved. A count that was waiting or running
+when TIDE closed is marked `stopped` at the next start-up (it can't carry on), with a plain-English
+`countDetail`. `SurveyInfo.windowsToConfirm` says how many videos still wait for a person.
 
 Videos are analysed per the FFH protocol (`config/protocol.yaml`): confirmed window, a point every
 `subsample.interval_s`, each point's ±`context_s` clip tracked so one fish counts once, counted only
@@ -94,6 +98,8 @@ on every request, so labels and point edits show up at once.
 | --- | --- | --- | --- |
 | GET | `/surveys/{id}/results` | | `SurveyResults` |
 | PATCH | `/videos/{id}/details` | `{recordedAt?, transect?, stat?, visibility?}` | `204`. Recording details; the window itself is confirmed with `PATCH /videos/{id}` below |
+| POST | `/videos/{id}/count` | header `X-TIDE-User` | `204`. Count the confirmed window again (after it was stopped, failed or interrupted). `400` no person; `404`; `409` already counting; `422` window not confirmed |
+| POST | `/videos/{id}/count/stop` | header `X-TIDE-User` | `204`. Stop counting (a waiting count stops at once, a running one at its next picture); `countDetail` becomes "Counting stopped by <name>". `400` no person; `404`; `409` not counting |
 | PATCH | `/points/{id}` | `{totalFish?, invertebrates?, visibility?, notes?, by}` | `204`. Stored next to the AI's values; `-1` puts a count back to the AI's |
 | GET | `/points/{id}/clip` | | the ±context clip (MP4; token in the query) |
 
@@ -224,7 +230,8 @@ SurveyInfo     {
                     files: string[],
                     frameCount: number, status: "running" | "done" | "failed" | "cancelled",
                     protocol: ProtocolSettings,     // the values this survey was processed with
-                    protocolRecorded: boolean       // false: processed before these were recorded (defaults shown)
+                    protocolRecorded: boolean,      // false: processed before these were recorded (defaults shown)
+                    windowsToConfirm: number        // videos whose analysis window no person has confirmed (nothing counted)
                 }
 
 ProtocolSettings      { trimStartS, trimEndS, maxExtraSettleS, lengthS, intervalS, firstPointOffsetS,
@@ -301,7 +308,8 @@ VideoResult    {
                     tooShort: boolean,          // flagged: not processed (only when window.allow_short_videos is false)
                     shortWindow: boolean,       // shorter than the protocol window: counts not comparable with full windows
                     confirmedBy: string,
-                    countState: "" | "queued" | "running" | "done" | "failed",   // "" = waiting for confirmation
+                    countState: "" | "queued" | "running" | "done" | "failed" | "stopped",  // "" = waiting for confirmation;
+                                                // "stopped" = stopped by a person, or TIDE closed while counting
                     countDetail: string,
                     points: PointResult[],
                     meanCount: number | null,   // final (staff values where set); zero points included

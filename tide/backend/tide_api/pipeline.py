@@ -381,6 +381,15 @@ SAMPLE_DETECTIONS = {  # boxes for the three sample pictures (species, confidenc
 # ──────────────────── Job runner (no changes needed) ────────────────────
 
 @dataclass
+class _CountRun:
+    """One queued or running count of a video. `stop` is set when a person stops it, or when the window
+    is confirmed again (a newer count replaces this one)."""
+    stop: threading.Event = field(default_factory=threading.Event)
+    by: str = ""  # who stopped it
+    started: bool = False
+
+
+@dataclass
 class _JobState:
     job: Job
     cancel: threading.Event = field(default_factory=threading.Event)
@@ -394,6 +403,8 @@ class Jobs:
         self.protocol, self.app = protocol, app
         self.jobs: dict[str, _JobState] = {}
         self.lock = threading.Lock()
+        self._count_runs: dict[int, _CountRun] = {}  # video id -> its current (queued or running) count
+        db.stop_interrupted_counts()  # counts from before TIDE last closed can't carry on
 
     def surveys_dir(self) -> Path:
         return self.data_dir / "surveys"
@@ -597,24 +608,66 @@ class Jobs:
     # ── Counting at the subsample points, after a person confirmed the window ──
 
     def count_video(self, video_id: int) -> None:
-        """Queue point counting for one video. Runs one video at a time in the background."""
-        self.db.set_count_state(video_id, "queued", "Waiting to count")
+        """Queue point counting for one video. Runs one video at a time in the background.
+        A count already waiting or running for this video is stopped: the new one replaces it."""
+        run = _CountRun()
         with self.lock:
+            old = self._count_runs.get(video_id)
+            if old:
+                old.stop.set()
+            self._count_runs[video_id] = run
             if not hasattr(self, "_count_queue"):
-                self._count_queue: queue.Queue[int] = queue.Queue()
+                self._count_queue: queue.Queue[tuple[int, _CountRun]] = queue.Queue()
                 threading.Thread(target=self._count_worker, daemon=True).start()
-        self._count_queue.put(video_id)
+        self.db.set_count_state(video_id, "queued", "Waiting to count")
+        self._count_queue.put((video_id, run))
+
+    def is_counting(self, video_id: int) -> bool:
+        with self.lock:
+            return video_id in self._count_runs
+
+    def stop_count(self, video_id: int, by: str) -> bool:
+        """Stop a video's count (a person chose Stop counting). Returns False if it isn't counting.
+        A running count stops at its next picture; nothing of it is saved."""
+        with self.lock:
+            run = self._count_runs.get(video_id)
+            if run is None:
+                return False
+            run.by = by
+            run.stop.set()
+            if not run.started:  # still waiting in the queue: stopped straight away
+                del self._count_runs[video_id]
+                self.db.set_count_state(video_id, "stopped", f"Counting stopped by {by}")
+        return True
 
     def _count_worker(self):
         while True:
-            video_id = self._count_queue.get()
+            video_id, run = self._count_queue.get()
+            with self.lock:
+                if run.stop.is_set():  # stopped or replaced while waiting
+                    continue
+                run.started = True
             try:
-                self._count_one(video_id)
+                self._count_one(video_id, run)
+            except Cancelled:
+                if self._current(video_id, run):  # not replaced by a newer count of the same video
+                    self.db.set_count_state(video_id, "stopped",
+                                            f"Counting stopped by {run.by}" if run.by else "Counting stopped")
             except Exception as e:  # shown to staff on the report
                 log.exception("Counting video %s failed", video_id)
-                self.db.set_count_state(video_id, "failed", str(e) or e.__class__.__name__)
+                if self._current(video_id, run):
+                    self.db.set_count_state(video_id, "failed", str(e) or e.__class__.__name__)
+            finally:
+                with self.lock:
+                    if self._count_runs.get(video_id) is run:
+                        del self._count_runs[video_id]
 
-    def _count_one(self, video_id: int) -> None:
+    def _current(self, video_id: int, run: _CountRun) -> bool:
+        with self.lock:
+            return self._count_runs.get(video_id) is run
+
+    def _count_one(self, video_id: int, run: _CountRun | None = None) -> None:
+        run = run or _CountRun()
         v = self.db.video_row(video_id)
         if v is None:
             return
@@ -636,14 +689,33 @@ class Jobs:
         key = window.video_id
 
         def progress(fr: float):
-            self.db.set_count_state(video_id, "running", f"Counting the points: {int(fr * 100)}%")
+            if not run.stop.is_set():  # a stopped count must not write "Counting…" over "stopped"
+                self.db.set_count_state(video_id, "running", f"Counting the points: {int(fr * 100)}%")
 
-        res = analyser.analyse_video(
-            Path(v["path"]), key, window=window, protocol=self.protocol_for(v["survey_id"]), app=self.app,
-            clip_dir=out_dir / "clips" / key, enhance=req.enhance,
-            index=ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name)),
-            save_picture=lambda img, name: _save_jpg(img, out_dir / f"{key}_{name}.jpg"),
-            on_progress=progress, cancelled=lambda: False, short_window=bool(v["short_window"]))
+        clip_dir = out_dir / "clips" / key
+        saved: list[Path] = []
+
+        def save_picture(img, name):
+            path = _save_jpg(img, out_dir / f"{key}_{name}.jpg")
+            saved.append(path)
+            return path
+
+        try:
+            if run.stop.is_set():
+                raise Cancelled
+            res = analyser.analyse_video(
+                Path(v["path"]), key, window=window, protocol=self.protocol_for(v["survey_id"]), app=self.app,
+                clip_dir=clip_dir, enhance=req.enhance,
+                index=ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name)),
+                save_picture=save_picture, on_progress=progress, cancelled=run.stop.is_set,
+                short_window=bool(v["short_window"]))
+            if run.stop.is_set():  # stopped while the last step was finishing: keep nothing
+                raise Cancelled
+        except Cancelled:  # remove the half-made clips and pictures; nothing of this count is saved
+            shutil.rmtree(clip_dir, ignore_errors=True)
+            for path in saved:
+                Path(path).unlink(missing_ok=True)
+            raise
         for pt in res.points:
             self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
         registry = {s.id for s in self.db.list_species()}

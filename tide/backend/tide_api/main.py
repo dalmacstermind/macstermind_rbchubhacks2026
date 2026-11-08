@@ -332,6 +332,33 @@ def confirm_window(video_id: int, body: VideoWindowPatch, x_tide_user: str = Hea
     return confirmed
 
 
+@app.post("/videos/{video_id}/count", status_code=204, tags=["surveys"])
+def count_again(video_id: int, x_tide_user: str = Header("")):
+    """Count a video's confirmed window again (after counting was stopped, failed or interrupted)."""
+    _person(x_tide_user, "the count")
+    video = db.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "No such video")
+    if not video.confirmed_by or video.window_start_s is None:
+        raise HTTPException(422, f"Confirm the analysis window of {video.file_name} first.")
+    if jobs.is_counting(video_id):
+        raise HTTPException(409, f"{video.file_name} is already being counted.")
+    jobs.count_video(video_id)
+    return Response(status_code=204)
+
+
+@app.post("/videos/{video_id}/count/stop", status_code=204, tags=["surveys"])
+def stop_count(video_id: int, x_tide_user: str = Header("")):
+    """Stop counting a video. Nothing of the stopped count is saved; it can be counted again later."""
+    person = _person(x_tide_user, "who stopped it")
+    video = db.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "No such video")
+    if not jobs.stop_count(video_id, person):
+        raise HTTPException(409, f"{video.file_name} isn't being counted.")
+    return Response(status_code=204)
+
+
 @app.get("/frames/{frame_id}/image", response_class=FileResponse, tags=["surveys"])
 def frame_image(frame_id: int):
     path = db.frame_image(frame_id)

@@ -95,6 +95,7 @@ export default function App() {
       setReviewMode(target);
       setPage("review");
     }
+    return d;
   }, []);
   const start = async () => {
     if (!person) return;
@@ -104,12 +105,15 @@ export default function App() {
       const r = await api.analysis.start({ ...form, person: person.name, files: files.map((f) => f.path) });
       setFiles([]);
       setForm({ ...form, site: "", surveyDate: "" });
-      await openSurvey(r.surveyId);
+      const opened = await openSurvey(r.surveyId);
       setFinished(r.files);
       if (prefs.notify) {
         const failed = r.files.filter((f) => f.state === "failed").length;
-        new Notification("TIDE: counting finished", {
-          body: `${form.site || "Your survey"} is ready${failed ? ` · ${plural(failed, "file")} couldn't be read` : ""}.`,
+        const windows = opened.survey.windowsToConfirm;
+        new Notification(windows ? "TIDE: waiting for you" : "TIDE: counting finished", {
+          body: windows
+            ? `${form.site || "Your survey"}: confirm the analysis window of ${plural(windows, "video")} so TIDE can count the fish.`
+            : `${form.site || "Your survey"} is ready${failed ? ` · ${plural(failed, "file")} couldn't be read` : ""}.`,
         });
       }
     } catch (e) {
@@ -145,6 +149,8 @@ export default function App() {
 
   const busy = page === "processing";
   const failed = finished?.filter((f) => f.state !== "done") ?? [];
+  // Videos are only counted after a person confirms their analysis window, so "finished" isn't the end.
+  const windowsToConfirm = data?.survey.windowsToConfirm ?? 0;
 
   return (
     // The app frame (CLAUDE.md, App frame): the top bar across the top; below it, the Tools column on
@@ -198,7 +204,7 @@ export default function App() {
                     <Alert
                       tone={failed.length ? "warning" : "success"}
                       icon={failed.length ? "⚠" : "✓"}
-                      title={`Counting finished${failed.length ? `, but ${plural(failed.length, "file")} couldn't be used` : ""}`}
+                      title={`${windowsToConfirm ? "Processing finished" : "Counting finished"}${failed.length ? `, but ${plural(failed.length, "file")} couldn't be used` : ""}`}
                       action={
                         <button className={btnGhost} onClick={() => setFinished(null)}>
                           Dismiss
@@ -207,7 +213,9 @@ export default function App() {
                     >
                       {failed.length
                         ? failed.map((f) => `${f.name}: ${f.detail}`).join(" · ")
-                        : `${plural(finished.length, "file")} counted.`}
+                        : windowsToConfirm
+                          ? `Next: confirm the analysis window of ${plural(windowsToConfirm, "video")} below. No fish are counted until you do.`
+                          : `${plural(finished.length, "file")} counted.`}
                     </Alert>
                   </div>
                 )}
