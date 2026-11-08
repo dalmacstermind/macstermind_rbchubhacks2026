@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@fontsource/sora/500.css";
 import "@fontsource/sora/600.css";
@@ -9,13 +9,20 @@ import "@fontsource/manrope/600.css";
 import "./styles.css";
 import App from "./App";
 import { connect } from "./api";
+import { Splash } from "./components/Splash";
 import { applyTheme, initialTheme } from "./theme";
 
 applyTheme(initialTheme()); // before first paint, so there's no flash of the wrong theme
 
-/** Shows "Starting TIDE…" until the back end answers, or a plain explanation if it can't start. */
+/**
+ * Shows the TIDE splash until the back end answers (and the animation has played), or a plain
+ * explanation if the back end can't start.
+ */
 function Startup() {
   const [state, setState] = useState<"starting" | "ready" | string>("starting");
+  const [splashDone, setSplashDone] = useState(false);
+  // Stable callback, so the splash's fade-out timer isn't restarted on every render.
+  const finishSplash = useCallback(() => setSplashDone(true), []);
   useEffect(() => {
     connect().then(
       (b) => setState(b.error ?? "ready"),
@@ -23,7 +30,14 @@ function Startup() {
     );
     window.desktop.onBackendCrashed((msg) => setState(msg));
   }, []);
-  if (state === "ready") return <App />;
+  if (state === "ready" && splashDone)
+    return (
+      <div className="tide-enter">
+        <App />
+      </div>
+    );
+  if (state === "starting" || state === "ready")
+    return <Splash variant="reef" ready={state === "ready"} onDone={finishSplash} />;
   return (
     <div className="grid h-screen place-items-center bg-background text-foreground">
       <div className="max-w-xl px-8 text-center">
