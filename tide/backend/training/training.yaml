@@ -1,0 +1,37 @@
+# YOLOX fine-tuning settings (developer tooling; never read by the app).
+
+# Detector classes, in training order. Species are NOT detector classes (CLAUDE.md, YOLO rules).
+classes: [fish, crab, shrimp, worm, snail]
+
+draft:
+  # Size of the placeholder box drawn around each staff dot, in pixels of a 3840-wide frame.
+  # From the "about 60×20 px" note in config/app.yaml. A person must correct these before real training.
+  box_w: 60
+  box_h: 20
+  # Dots are only read above this fraction of the screenshot's height. Staff count the top two rows
+  # of the grid; below that, rocks and the video player look like dots.
+  max_y_frac: 0.665
+  # The screenshot's time is only known to about a second: search this far either side.
+  align_window_s: 3
+
+tile:
+  # 4K frames are cut into tiles at full resolution so small fish stay big enough to learn from.
+  size_px: 1280
+  overlap_px: 200
+  min_box_visible: 0.5      # keep a box in a tile only if this share of it is inside
+
+split:
+  val_fraction: 0.2         # share of VIDEOS (never frames) kept for validation
+
+train:
+  size: s                   # s suits a 4 GB GPU; use m on Coastal Action's 12 GB GPU
+  input_px: 640
+  batch: 4
+  epochs: 100
+  eval_interval: 5
+
+evaluate:
+  match_radius_px: 10       # a dot counts as found within this distance of a box (1920-wide scale)
+  conf_threshold: 0.3
+  nms_iou: 0.5
+  max_pct_diff: 6           # same "within 6 %" rule as human QC (protocol.yaml qc.max_pct_diff default)

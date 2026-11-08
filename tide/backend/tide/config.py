@@ -3,6 +3,7 @@
 Protocol values are settings, not constants (CLAUDE.md, hard constraint 6): every module gets
 these objects passed in and never reads the YAML files itself.
 """
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -287,6 +288,11 @@ class DetectConfig:
     context_fps: float  # pictures per second read from each point's ±context_s range
     speck_max_area_pct: float  # "ignore tiny specks": boxes under this % of the picture are dropped
     look_closer_grid: int  # "look closer for small fish": tiles per side on the full-resolution picture
+    backend: str = "cfd"  # "cfd" | "yolox" (local preview; TIDE_DETECTOR overrides it)
+    yolox_checkpoint: Path | None = None
+    yolox_source: Path | None = None  # folder holding the YOLOX source and its packages (developer setup)
+    yolox_size: str = "m"
+    yolox_input_px: int = 1280
 
 
 @dataclass(frozen=True)
@@ -388,6 +394,21 @@ class VisionConfig:
 CLARITY_MEASURES = ("contrast", "sharpness", "haze", "colour", "particles")
 
 
+def _yolox_settings(det: dict, models_dir: Path, path: Path) -> dict:
+    """Which detector to run. The TIDE_DETECTOR environment variable wins, for local tryouts only."""
+    backend = os.environ.get("TIDE_DETECTOR") or det.get("backend", "cfd")
+    if backend not in ("cfd", "yolox"):
+        raise ConfigError(f"{path.name}: detect.backend must be cfd or yolox, not {backend}.")
+    yolox = det.get("yolox")
+    if not isinstance(yolox, dict):
+        return {"backend": backend}
+    return {"backend": backend,
+            "yolox_checkpoint": (models_dir / _text(yolox, "detect.yolox.checkpoint", path)).resolve(),
+            "yolox_source": (models_dir / _text(yolox, "detect.yolox.source", path)).resolve(),
+            "yolox_size": _text(yolox, "detect.yolox.size", path),
+            "yolox_input_px": int(_num(yolox, "detect.yolox.input_px", path, minimum=1))}
+
+
 def load_vision_config(path: Path | None = None) -> VisionConfig:
     """Model locations and thresholds for detection, species ID, tracking and the clarity index."""
     path = path or default_config_dir() / "app.yaml"
@@ -422,6 +443,7 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             context_fps=_num(det, "detect.context_fps", path, minimum=0, strict=True),
             speck_max_area_pct=_num(det, "detect.speck_max_area_pct", path, minimum=0),
             look_closer_grid=int(_num(det, "detect.look_closer_grid", path, minimum=1)),
+            **_yolox_settings(det, models_dir, path),
         ),
         species=SpeciesConfig(
             model_dir=models_dir / _text(sp, "species.model_dir", path),

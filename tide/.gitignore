@@ -13,3 +13,6 @@ __pycache__/
 .pytest_cache/
 # Model weights under backend/models go through Git LFS (see /.gitattributes)
 *.onnx
+
+# YOLOX training tools: pinned source, weights and training-only packages (python -m training.setup_yolox)
+backend/training/third_party/

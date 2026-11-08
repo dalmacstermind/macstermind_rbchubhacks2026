@@ -1,0 +1,7 @@
+# Training only: installed into training/third_party/deps by setup_yolox, never into the app's .venv.
+loguru==0.7.3
+tabulate==0.10.0
+tqdm==4.70.1
+psutil==7.2.2
+pycocotools==2.0.11
+tensorboard==2.21.0

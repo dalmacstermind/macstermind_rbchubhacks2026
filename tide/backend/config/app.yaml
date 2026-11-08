@@ -41,6 +41,14 @@ detect:
   # "Look closer for small fish" (a survey option): also search the full-resolution picture in a
   # grid of overlapping tiles. Finds more small, distant fish; about grid×grid+1 times slower.
   look_closer_grid: 2
+  # Which detector runs: cfd (above) or yolox. Leave this on cfd. To try YOLOX on this PC, start TIDE
+  # with the environment variable TIDE_DETECTOR=yolox.
+  backend: cfd
+  yolox:                    # Local preview: standard COCO weights, NOT trained on fish. Never report its counts.
+    checkpoint: ../training/third_party/weights/yolox_m.pth   # relative to models.dir
+    source: ../training/third_party                           # from python -m training.setup_yolox
+    size: m
+    input_px: 1280
 
 species:
   model_dir: bioclip-2      # BioCLIP 2 snapshot (open_clip format) inside models.dir

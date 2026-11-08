@@ -14,6 +14,8 @@ without team and client approval.
 | FastAPI, Uvicorn | see requirements.txt | MIT, BSD-3-Clause | Backend API | |
 | PyInstaller | ≥ 6 | GPL-2.0 with bootloader exception | Building `tide-api.exe` | The exception allows bundling non-GPL apps |
 | PyTorch (CUDA build) | 2.7.1+cu118, torchvision 0.22.1+cu118 | BSD-3-Clause | Inference runtime (detector, BioCLIP 2) | Bundles NVIDIA CUDA 11.8 runtime libraries (NVIDIA EULA, redistributable with the app) |
+| YOLOX source (training only) | tag 0.3.0, commit `419778480ab6` | Apache 2.0 | Fine-tuning the target detector (`tide/backend/training/`) | Fetched by `training.setup_yolox` into a git-ignored folder; not in the installer. Starting weights `yolox_s.pth` (SHA-256 `f55ded71…`) and `yolox_m.pth` (`60076992…`), Megvii release `0.1.1rc0`, trained on COCO; no fish class |
+| loguru, tabulate, tqdm, psutil, pycocotools, thop, TensorBoard (training only) | see `training/requirements-train.txt` | MIT; MIT; MPL-2.0 and MIT; BSD-3-Clause; BSD-2-Clause; MIT; Apache 2.0 | YOLOX training | Installed in `training/third_party/deps`, never in the app's environment or the installer |
 | rfdetr | 1.12.0 | Apache 2.0 | Runs the Community Fish Detector (RF-DETR) | Pulls in transformers (Apache 2.0) |
 | open_clip_torch | 4.2.1 | MIT | Runs BioCLIP 2 | Pulls in timm (Apache 2.0), safetensors (Apache 2.0) |
 | trackers | 2.7.0 | Apache 2.0 | ByteTrack implementation | |

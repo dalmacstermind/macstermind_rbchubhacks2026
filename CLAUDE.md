@@ -166,6 +166,7 @@ tide/
       evaluate.py                AI vs hand counts, protocol-style (per-point % diff, share within 6%, MeanCount)
       export.py                  rows for the Coastal Action spreadsheet (written by ExcelJS in the app)
       benchmark.py               timing, VRAM, RAM, frames/s
+    training/                    developer-only YOLOX fine-tuning (see its README); never imported by the app
     config/protocol.yaml         protocol parameters (defaults)
     config/app.yaml              app settings (accepted types, limits, ffmpeg path, thresholds)
     models/                      local weights (git-ignored)

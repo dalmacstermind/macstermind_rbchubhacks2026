@@ -29,7 +29,7 @@ from tide import device
 from tide.analyse import IMAGE_EXT as AV_IMAGE_EXT
 from tide.analyse import Analyser, Cancelled, FileResult, read_image
 from tide.config import AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_vision_config
-from tide.detect import CfdDetector, ModelMissingError
+from tide.detect import CfdDetector, YoloxPreviewDetector, ModelMissingError
 from tide.frames import probe_video
 from tide.ingest import recorded_date, transect_stat
 from tide.protocol import AnalysisWindow, WindowProposal, propose_window
@@ -145,7 +145,18 @@ class Vision:
         if self._detector is not None:
             return []
         tracking = ("supervision", "trackers") if self.cfg is not None and self.cfg.track.enabled else ()
-        return missing_packages(("torch", "rfdetr", *tracking))
+        return missing_packages(("torch", *(() if self._yolox else ("rfdetr",)), *tracking))
+
+    @property
+    def _yolox(self) -> bool:
+        return self.cfg is not None and self.cfg.detect.backend == "yolox"
+
+    @property
+    def _weights_found(self) -> bool:
+        if self.cfg is None:
+            return False
+        path = self.cfg.detect.yolox_checkpoint if self._yolox else self.cfg.detect.checkpoint
+        return path is not None and path.is_file()
 
     @property
     def installed(self) -> bool:
@@ -153,7 +164,7 @@ class Vision:
         (otherwise: demo mode)."""
         if self._detector is not None:
             return True
-        return self.cfg is not None and self.cfg.detect.checkpoint.is_file() and not self.missing_packages
+        return self._weights_found and not self.missing_packages
 
     @property
     def species_installed(self) -> bool:
@@ -169,7 +180,7 @@ class Vision:
     def detector(self):
         with self.lock:
             if self._detector is None:
-                self._detector = CfdDetector(self.cfg.detect)
+                self._detector = (YoloxPreviewDetector if self._yolox else CfdDetector)(self.cfg.detect)
             return self._detector.load() if hasattr(self._detector, "load") else self._detector
 
     def encoder(self):
@@ -187,7 +198,7 @@ class Vision:
     def status(self, references: int) -> ModelStatus:
         mode = device.mode()
         if not self.installed:
-            weights = self.cfg is not None and self.cfg.detect.checkpoint.is_file()
+            weights = self._weights_found
             missing = self.missing_packages
             why = (self.error
                    or (f"The model files are here, but the software that runs them isn't installed"
@@ -196,12 +207,16 @@ class Vision:
             return ModelStatus(ready=True, demo=True, name="Demo mode", device=mode, gpu=device.gpu_name() or "",
                                message=f"{why}, so results are sample data.")
         species = self.encoder_name if self.species_installed else ""
-        msg = (f"Fish detector: Community Fish Detector (RF-DETR). Species: {species or 'not installed'}"
+        detector = YoloxPreviewDetector.name if self._yolox else "Community Fish Detector (RF-DETR)"
+        msg = (f"Fish detector: {detector}. Species: {species or 'not installed'}"
                f" with {references} reference picture{'s' if references != 1 else ''}.")
         if species and not references:
             msg += " Add reference pictures in Species so fish can be identified."
-        return ModelStatus(ready=True, demo=False, name="Community Fish Detector + BioCLIP 2" if species else
-                           "Community Fish Detector", message=msg, device=mode, gpu=device.gpu_name() or "",
+        if self._yolox:
+            msg += " This is a preview: its boxes and counts are not results."
+        short = YoloxPreviewDetector.name if self._yolox else "Community Fish Detector"
+        return ModelStatus(ready=True, demo=False, name=f"{short} + BioCLIP 2" if species else short,
+                           message=msg, device=mode, gpu=device.gpu_name() or "",
                            species_model=species, references=references)
 
 

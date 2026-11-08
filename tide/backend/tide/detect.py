@@ -177,3 +177,63 @@ class CfdDetector:
     def describe(self) -> dict:
         return {"name": self.name, "checkpoint": self.cfg.checkpoint.name, "device": self.device,
                 "resolution": self.resolution}
+
+
+class YoloxPreviewDetector(CfdDetector):
+    """Local tryout only: standard YOLOX weights with every object treated as a fish.
+
+    COCO YOLOX has no fish class, so its "something is here" score is used and it will also box the
+    pole, algae and seabed. Its counts must never be reported as results (CLAUDE.md, YOLO rules).
+    """
+
+    name = "YOLOX preview (not trained on fish)"
+    _DEPTH_WIDTH = {"s": (0.33, 0.50), "m": (0.67, 0.75)}
+
+    @property
+    def checkpoint(self) -> Path:
+        return self.cfg.yolox_checkpoint
+
+    def load(self) -> "YoloxPreviewDetector":
+        if self.model is not None:
+            return self
+        if self.cfg.yolox_checkpoint is None or not self.cfg.yolox_checkpoint.is_file():
+            raise ModelMissingError("The YOLOX preview isn't set up. Developers: python -m training.setup_yolox")
+        import sys
+        source = self.cfg.yolox_source
+        sys.path.insert(0, str(source / "YOLOX"))
+        sys.path.append(str(source / "deps"))  # last, so the app's own numpy and torch are the ones used
+        import torch
+        from yolox.models import YOLOPAFPN, YOLOX, YOLOXHead
+
+        depth, width = self._DEPTH_WIDTH[self.cfg.yolox_size]
+        channels = [256, 512, 1024]
+        model = YOLOX(YOLOPAFPN(depth, width, in_channels=channels), YOLOXHead(80, width, in_channels=channels))
+        model.load_state_dict(torch.load(self.cfg.yolox_checkpoint, map_location="cpu", weights_only=True)["model"])
+        model.head.decode_in_inference = True
+        with GPU_LOCK:
+            self.model = model.to(self.device).eval()
+        self.resolution = self.cfg.yolox_input_px
+        log.info("Loaded %s from %s on %s", self.name, self.cfg.yolox_checkpoint.name, self.device)
+        return self
+
+    def _predict(self, image_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Boxes and objectness. YOLOX expects BGR 0-255, resized and padded at the bottom right."""
+        import torch
+
+        size = self.cfg.yolox_input_px
+        h, w = image_bgr.shape[:2]
+        r = min(size / h, size / w)
+        canvas = np.full((size, size, 3), 114, np.uint8)
+        canvas[:int(h * r), :int(w * r)] = cv2.resize(image_bgr, (int(w * r), int(h * r)))
+        batch = torch.from_numpy(canvas.transpose(2, 0, 1)).float().unsqueeze(0).to(self.device)
+        cuda = str(self.device).startswith("cuda")
+        with GPU_LOCK, torch.no_grad(), torch.autocast("cuda", enabled=cuda):
+            p = self.model(batch)[0].float().cpu().numpy()
+        p = p[p[:, 4] >= self.cfg.conf_threshold]
+        cx, cy, bw, bh = p[:, 0] / r, p[:, 1] / r, p[:, 2] / r, p[:, 3] / r
+        boxes = np.stack([cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2], axis=1).astype(np.float32)
+        return boxes, p[:, 4].astype(np.float32)
+
+    def describe(self) -> dict:
+        return {"name": self.name, "checkpoint": self.cfg.yolox_checkpoint.name, "device": self.device,
+                "resolution": self.resolution}
