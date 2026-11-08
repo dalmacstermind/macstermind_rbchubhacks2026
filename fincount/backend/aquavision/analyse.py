@@ -27,6 +27,7 @@ from .clips import save_clip
 from .config import AppConfig, ProtocolConfig, VisionConfig
 from .detect import Detection, Detector
 from .frames import iter_sampled_frames, probe_video
+from .motion import find_moving_objects, small_grey
 from .protocol import (AnalysisWindow, _require_confirmed, context_range, plan_short_window_points,
                        plan_subsample_points)
 from .species import ReferenceIndex, SpeciesResult, crop_box, match
@@ -166,6 +167,32 @@ class Analyser:
                                         clarity_index(img, self.cfg.clarity), dets, role, point_no))
             tick()
 
+    def _add_moving_fish(self, pictures: list[Picture], greys: list[np.ndarray], key: str,
+                         crops: dict[str, _TrackCrops]) -> None:
+        """Add fish found by motion (motion.py) that the detector didn't already box."""
+        found = find_moving_objects(greys, self.cfg.motion)
+        if found.skipped_reason:
+            log.info("%s: %s", key, found.skipped_reason)
+        if not found.boxes or len(greys) != len(pictures):
+            return
+        images: dict[int, np.ndarray] = {}
+        for mb in found.boxes:
+            pic = pictures[mb.frame_index]
+            s = pic.width / self.cfg.motion.work_width
+            x1, y1, x2, y2 = (max(0.0, v * s) for v in mb.box)
+            x2, y2 = min(x2, pic.width), min(y2, pic.height)
+            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+            if any(d.box[0] <= cx <= d.box[2] and d.box[1] <= cy <= d.box[3] for d in pic.detections):
+                continue  # the detector already has this fish
+            d = Detection(pic.frame_idx, pic.t_s, (x1, y1, x2, y2), "fish", self.cfg.motion.confidence,
+                          f"{key}-m{mb.track}")
+            pic.detections.append(d)
+            if mb.frame_index not in images:
+                images[mb.frame_index] = read_image(pic.image_path)
+            c = crop_box(images[mb.frame_index], d.box, max(self.cfg.species.crop_padding, 0.5), 4)
+            if c is not None:
+                crops.setdefault(d.track_id, _TrackCrops()).add(_crop_quality(images[mb.frame_index], d), c)
+
     def _identify(self, pictures: list[Picture], crops: dict[str, _TrackCrops], index: ReferenceIndex,
                   cancelled: Callable[[], bool]):
         species: dict[str, SpeciesResult] = {}
@@ -238,10 +265,19 @@ class Analyser:
             grid_start = p.timestamp_s - int((p.timestamp_s - start) * fps) / fps
             frames = iter_sampled_frames(path, file_key, grid_start, end, fps, preroll_s=app.frames.seek_preroll_s)
             tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps)
-            self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), tracker,
-                               file_key, enhance, crops, pictures, save_picture,
+            first = len(pictures)
+            greys: list[np.ndarray] = []  # small grey copies for motion detection (stationary camera)
+
+            def source(frames=frames, greys=greys):
+                for f in frames:
+                    if self.cfg.motion.enabled:
+                        greys.append(small_grey(f.image, self.cfg.motion.work_width))
+                    yield f.frame_idx, f.t_s, hhmmss(f.t_s), f.image
+
+            self._run_pictures(source(), tracker, file_key, enhance, crops, pictures, save_picture,
                                lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
                                cancelled, tick)
+            self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
             clip: Path | None = p.clip_path
             try:
                 save_clip(path, start, end, p.clip_path, app.clips, preroll_s=app.frames.seek_preroll_s)

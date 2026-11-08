@@ -245,6 +245,20 @@ class ClarityConfig:
 
 
 @dataclass(frozen=True)
+class MotionConfig:
+    enabled: bool
+    work_width: int
+    threshold_sigma: float
+    min_area_px: float
+    max_area_px: float
+    link_px: float
+    min_frames: int
+    min_travel_px: float
+    confidence: float
+    max_moving_fraction: float  # more than this share of the picture changing = the camera moved
+
+
+@dataclass(frozen=True)
 class StationaryConfig:
     min_sightings: int
     min_span_s: float
@@ -265,6 +279,7 @@ class VisionConfig:
     clarity: ClarityConfig
     label: LabelConfig
     stationary: StationaryConfig
+    motion: MotionConfig
 
 
 CLARITY_MEASURES = ("contrast", "sharpness", "haze", "colour", "particles")
@@ -274,9 +289,9 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
     """Model locations and thresholds for detection, species ID, tracking and the clarity index."""
     path = path or default_config_dir() / "app.yaml"
     data = _read(path)
-    models, det, sp, trk, clar, lab, stat = (_section(data, n, path) for n in
-                                             ("models", "detect", "species", "track", "clarity", "label",
-                                              "stationary"))
+    models, det, sp, trk, clar, lab, stat, mot = (_section(data, n, path) for n in
+                                                  ("models", "detect", "species", "track", "clarity", "label",
+                                                   "stationary", "motion"))
     thresholds = clar.get("category_thresholds")
     if (not isinstance(thresholds, list) or not thresholds
             or not all(isinstance(t, (int, float)) and 0 <= t <= 100 for t in thresholds)
@@ -327,6 +342,18 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             min_sightings=int(_num(stat, "stationary.min_sightings", path, minimum=2)),
             min_span_s=_num(stat, "stationary.min_span_s", path, minimum=0),
             max_shift_pct=_num(stat, "stationary.max_shift_pct", path, minimum=0),
+        ),
+        motion=MotionConfig(
+            enabled=_bool(mot, "motion.enabled", path),
+            work_width=int(_num(mot, "motion.work_width", path, minimum=160)),
+            threshold_sigma=_num(mot, "motion.threshold_sigma", path, minimum=0, strict=True),
+            min_area_px=_num(mot, "motion.min_area_px", path, minimum=1),
+            max_area_px=_num(mot, "motion.max_area_px", path, minimum=1),
+            link_px=_num(mot, "motion.link_px", path, minimum=0, strict=True),
+            min_frames=int(_num(mot, "motion.min_frames", path, minimum=2)),
+            min_travel_px=_num(mot, "motion.min_travel_px", path, minimum=0),
+            confidence=_num(mot, "motion.confidence", path, minimum=0, strict=True),
+            max_moving_fraction=_num(mot, "motion.max_moving_fraction", path, minimum=0, strict=True),
         ),
     )
     for key, value in (("detect.conf_threshold", cfg.detect.conf_threshold), ("detect.nms_iou", cfg.detect.nms_iou),

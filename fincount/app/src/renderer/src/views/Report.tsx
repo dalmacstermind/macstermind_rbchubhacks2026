@@ -150,6 +150,7 @@ export function ReportView({
           surveyId={survey.id}
           species={species}
           person={person}
+          onCountingDone={onChanged}
           version={frames.reduce((n, f) => n + f.detections.filter((d) => d.verified).length, frames.length)}
         />
 

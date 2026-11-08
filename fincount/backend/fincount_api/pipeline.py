@@ -404,7 +404,8 @@ class Jobs:
             rows = []
             for d in pic.detections:
                 box = _to_percent(d.box, pic.width, pic.height)
-                if req.ignore_specks and box.w * box.h < VISION.cfg.detect.speck_max_area_pct * 100:  # %×% units
+                is_motion = (d.track_id or "").rsplit("-", 1)[-1].startswith("m")  # motion.py has its own size limits
+                if req.ignore_specks and not is_motion and box.w * box.h < VISION.cfg.detect.speck_max_area_pct * 100:
                     continue
                 sr = res.species[d.track_id]
                 rows.append((species_for(sr.label, registry), round(d.conf, 3), box,

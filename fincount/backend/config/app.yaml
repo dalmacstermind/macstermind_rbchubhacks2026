@@ -79,5 +79,19 @@ stationary:
   min_span_s: 3             # …spread over at least this many seconds…
   max_shift_pct: 0.5        # …and its centre never moved more than this % of the picture
 
+# Moving fish the detector misses (stationary cameras): see aquavision/motion.py. Distances are pixels
+# of a picture work_width wide. UNCALIBRATED: check candidates on the Label page before trusting them.
+motion:
+  enabled: true
+  work_width: 1920
+  threshold_sigma: 4        # a pixel is "moving" when it differs from the background by 4× its usual noise
+  min_area_px: 25           # blob size that can be a fish
+  max_area_px: 6000
+  link_px: 60               # how far a fish may move between two pictures (at detect.context_fps)
+  min_frames: 3             # seen in at least this many pictures…
+  min_travel_px: 15         # …and travelled at least this far (seabed flicker doesn't travel)
+  confidence: 0.3           # below the usual certainty threshold: a person confirms before it counts
+  max_moving_fraction: 0.05 # more than 5 % of the picture changing = camera moved: skip that clip
+
 label:
   match_iou: 0.5            # a drawn box overlapping an existing fish this much relabels it (no double count)
