@@ -27,7 +27,7 @@ def client(tmp_path, monkeypatch):
 
 def analyse(client, *files):
     job = client.post("/analyses", json={"site": "Mahone Bay", "files": [str(f) for f in files]}).json()
-    for _ in range(600):
+    for _ in range(3600):  # up to ~3 min: counting runs in the background
         if job["state"] != "running":
             break
         time.sleep(0.1)

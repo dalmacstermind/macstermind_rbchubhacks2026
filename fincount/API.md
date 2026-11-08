@@ -175,6 +175,7 @@ AnalysisRequest{
                     enhance: boolean,           // clear up murky water
                     ignoreSpecks: boolean,      // drop boxes smaller than detect.speck_max_area_pct (app.yaml, 0.01 %) of the picture
                     lookCloser: boolean,        // also search the full-size picture in tiles: more small fish, ~5× slower
+                    tracker?: "bytetrack" | "ocsort",   // how fish are followed between pictures (default: app.yaml)
                     files: string[]            // full paths on this computer (the app sends paths, not uploads)
                 }
 
@@ -217,6 +218,9 @@ Frame          {
                     source: string,             // original file name
                     timestamp: string,          // "00:01:47", or "Photo"
                     clarity: number | null,     // 0–100 water-clarity estimate (pipeline TODO 3), for Trends
+                    quality: "clear" | "moderate" | "muddy" | "obscured",   // per-picture filter; obscured = can't identify fish
+                    qualityReasons: string,     // e.g. "blurred, hazy or turbid"
+                    static: boolean,            // same as the previous picture: detector not run again, boxes carried over
                     detections: Detection[]
                 }
 
@@ -233,7 +237,8 @@ Detection      {
                     aiLabel: string,            // species id, "Unknown" or "Potential Novel Sighting"
                     suggestions: { speciesId, score }[],  // top guesses, best first; score = similarity 0–1, not a probability
                     novelty: number | null,     // 0–1 distance to the nearest species with reference pictures
-                    unknownReason: string       // plain English, when the AI couldn't name the species
+                    unknownReason: string,      // plain English, when the AI couldn't name the species
+                    possibleDrift: boolean      // moved exactly like the water: needs a person before it counts
                 }       
 
 ModelStatus    {
@@ -284,6 +289,8 @@ PointResult    {
                     notes, staffNotes, needsReview, reviewed, editedBy,
                     uncertain, outside,         // not counted: below the threshold / outside ±tolerance
                     stationary,                 // not counted: objects that never moved (pole markings, rocks, a resting fish?)
+                    drifting,                   // not counted: tracks that moved exactly like the water (debris?)
+                    unidentifiable,             // not counted: seen only in pictures too murky to identify fish
                     ai: { totalFish, invertebrates },   // never changed
                     clip: string | null         // "/points/3/clip"
                 }

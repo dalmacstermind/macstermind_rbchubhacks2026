@@ -259,6 +259,17 @@ export function UploadView({
                   </span>
                 </span>
               </label>
+              <label className="flex items-center justify-between gap-2 text-sm">
+                Follow fish between pictures with
+                <select
+                  className="input w-auto py-1"
+                  value={form.tracker ?? "bytetrack"}
+                  onChange={(e) => set("tracker", e.target.value as "bytetrack" | "ocsort")}
+                >
+                  <option value="bytetrack">ByteTrack (default)</option>
+                  <option value="ocsort">OC-SORT (fish that turn or hide)</option>
+                </select>
+              </label>
               <p className="text-xs text-muted-foreground">Change the starting values for these in Settings.</p>
             </div>
           </Disclosure>

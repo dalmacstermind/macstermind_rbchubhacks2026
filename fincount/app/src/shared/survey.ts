@@ -119,6 +119,8 @@ export type Detection = {
   novelty?: number | null;
   /** Why the AI couldn't name the species, in plain English. */
   unknownReason?: string;
+  /** Moved exactly like the water (debris or weed?): not counted until a person confirms. */
+  possibleDrift?: boolean;
 };
 
 export type Frame = {
@@ -127,6 +129,9 @@ export type Frame = {
   source: string; // original file name
   timestamp: string;
   clarity?: number | null; // 0–100 water-clarity estimate (null = not measured)
+  quality?: "" | "clear" | "moderate" | "muddy" | "obscured"; // obscured: too murky to identify fish
+  qualityReasons?: string; // e.g. "blurred, hazy or turbid"
+  static?: boolean; // same as the previous picture: the detector wasn't run again, its boxes were carried over
   detections: Detection[];
 };
 

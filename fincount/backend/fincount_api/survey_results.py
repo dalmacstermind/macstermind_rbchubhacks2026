@@ -60,7 +60,7 @@ def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResul
                 suggested_visibility=p.ai.suggested_visibility, visibility=p.visibility, notes=p.ai.notes,
                 staff_notes=p.staff_notes, needs_review=p.ai.needs_review, reviewed=p.reviewed,
                 edited_by=p.edited_by, uncertain=p.ai.uncertain, outside=p.ai.outside,
-                stationary=p.ai.stationary,
+                stationary=p.ai.stationary, drifting=p.ai.drifting, unidentifiable=p.ai.unidentifiable,
                 ai=AiPointCount(total_fish=p.ai.total_fish, invertebrates=p.ai.invertebrates),
                 clip=f"/points/{p.id}/clip" if p.has_clip else None) for p in s.points]))
     images = [ImageOut(**asdict(c)) for c in av_results.image_counts(db.photo_sightings(survey_id), labels, threshold)]

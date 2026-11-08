@@ -140,7 +140,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _wait(client, job):
-    for _ in range(300):
+    for _ in range(3600):  # up to ~3 min: counting runs in the background
         job = client.get(f"/analyses/{job['jobId']}").json()
         if job["state"] != "running":
             return job

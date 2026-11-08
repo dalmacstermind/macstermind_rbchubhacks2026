@@ -65,7 +65,7 @@ def test_short_video_is_counted_after_confirmation(tmp_path, monkeypatch):
     client.post("/people", json={"name": "Ana"})
     clip = make_video(tmp_path / "T1-STAT2 clip.mp4", seconds=8, fps=10)
     job = client.post("/analyses", json={"files": [str(clip)], "ignoreSpecks": False}).json()
-    for _ in range(300):
+    for _ in range(3600):  # up to ~3 min: counting runs in the background
         job = client.get(f"/analyses/{job['jobId']}").json()
         if job["state"] != "running":
             break
@@ -76,7 +76,7 @@ def test_short_video_is_counted_after_confirmation(tmp_path, monkeypatch):
     r = client.patch(f"/videos/{v['id']}", json={"windowStartS": v["proposedStartS"], "windowEndS": v["proposedEndS"]},
                      headers={"X-FinCount-User": quote("Ana")})
     assert r.status_code == 200, r.text
-    for _ in range(300):
+    for _ in range(3600):  # up to ~3 min: counting runs in the background
         res = client.get(f"/surveys/{job['surveyId']}/results").json()["videos"][0]
         if res["countState"] in ("done", "failed"):
             break

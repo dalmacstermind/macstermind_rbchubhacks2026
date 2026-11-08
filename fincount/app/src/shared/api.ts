@@ -14,6 +14,7 @@ export type AnalysisRequest = {
   enhance: boolean; // clear up murky water
   ignoreSpecks: boolean; // drop tiny boxes (sediment, bubbles)
   lookCloser: boolean; // also search the full-size picture in tiles: more small fish, slower
+  tracker?: "bytetrack" | "ocsort"; // how fish are followed between pictures (default: settings)
   files: string[]; // full paths on disk
 };
 
@@ -104,6 +105,8 @@ export type PointResult = {
   uncertain: number;
   outside: number;
   stationary: number; // objects that didn't move (pole markings, rocks, a resting fish?): not counted
+  drifting: number; // moved exactly like the water (debris?): not counted until a person confirms
+  unidentifiable: number; // seen only in pictures too murky to identify fish: not counted
   ai: { totalFish: number; invertebrates: number }; // the AI's counts, never changed
   clip: string | null; // full URL of the ±context clip (token added by api.ts)
 };

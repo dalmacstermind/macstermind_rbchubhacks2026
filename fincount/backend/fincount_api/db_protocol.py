@@ -43,6 +43,13 @@ PROTOCOL_MIGRATIONS = [
     ("surveys", "enhance", "INTEGER NOT NULL DEFAULT 1"),
     ("surveys", "ignore_specks", "INTEGER NOT NULL DEFAULT 1"),
     ("surveys", "look_closer", "INTEGER NOT NULL DEFAULT 0"),
+    ("surveys", "tracker", "TEXT NOT NULL DEFAULT ''"),
+    # SeaSieve filters, per picture and per detection
+    ("frames", "quality", "TEXT NOT NULL DEFAULT ''"),  # clear | moderate | muddy | obscured
+    ("frames", "quality_score", "REAL"),
+    ("frames", "quality_reasons", "TEXT NOT NULL DEFAULT ''"),
+    ("frames", "static", "INTEGER NOT NULL DEFAULT 0"),  # boxes carried over from the last searched picture
+    ("detections", "drift", "INTEGER NOT NULL DEFAULT 0"),  # the track moved like the water (review)
     ("frames", "video_id", "INTEGER"),
     ("frames", "point_no", "INTEGER"),
     ("frames", "t_s", "REAL"),
@@ -127,8 +134,8 @@ class ProtocolStore:
     def video_sightings(self, video_id: int):
         """Every detection of one video with the picture it was in (role, point, time, clarity)."""
         return self.all("SELECT d.id, d.track_id, d.confidence, d.species_id, d.model_species_id, d.verified, "
-                        "d.ai_label, d.top_k, d.unknown_reason, d.x, d.y, d.w, d.h, f.id AS frame_id, f.role, "
-                        "f.point_no, f.t_s, f.timestamp, f.source FROM detections d JOIN frames f "
+                        "d.ai_label, d.top_k, d.unknown_reason, d.x, d.y, d.w, d.h, d.drift, f.id AS frame_id, "
+                        "f.role, f.point_no, f.t_s, f.timestamp, f.source, f.quality FROM detections d JOIN frames f "
                         "ON f.id = d.frame_id WHERE f.video_id = ? ORDER BY d.id", video_id)
 
     def point_frames(self, video_id: int, point_no: int):

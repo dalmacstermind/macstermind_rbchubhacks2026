@@ -77,7 +77,10 @@ class SurveyResults:
 def _sightings(rows) -> list[Sighting]:
     keys = rows[0].keys() if rows else []
     return [Sighting(r["track_id"], (r["t_s"] or 0.0) if "t_s" in keys else 0.0, r["confidence"],
-                     (r["x"], r["y"], r["w"], r["h"]) if "x" in keys else None) for r in rows if r["track_id"]]
+                     (r["x"], r["y"], r["w"], r["h"]) if "x" in keys else None,
+                     bool(r["drift"]) if "drift" in keys else False,
+                     (r["quality"] == "obscured") if "quality" in keys else False)
+            for r in rows if r["track_id"]]
 
 
 def video_summary(video, points, sightings, frames_by_point: dict[int, list], labels: dict[str, TrackLabel],

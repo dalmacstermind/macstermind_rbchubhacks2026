@@ -256,7 +256,7 @@ class Database(ProtocolStore):
                 confidence=d["confidence"], verified=bool(d["verified"]), edited_by=d["edited_by"],
                 box=Box(x=d["x"], y=d["y"], w=d["w"], h=d["h"]), track_id=d["track_id"], ai_label=d["ai_label"],
                 suggestions=[Suggestion(species_id=k, score=v) for k, v in json.loads(d["top_k"] or "[]")],
-                novelty=d["novelty"], unknown_reason=d["unknown_reason"]))
+                novelty=d["novelty"], unknown_reason=d["unknown_reason"], possible_drift=bool(d["drift"])))
         return self._info(r), [(f, by_frame.get(f["id"], [])) for f in frames]
 
     def delete_survey(self, survey_id: int):
@@ -266,7 +266,9 @@ class Database(ProtocolStore):
 
     def add_frame(self, survey_id: int, source: str, timestamp: str, image_path: str,
                   detections: list[tuple], clarity: float | None = None, *, video_id: int | None = None,
-                  point_no: int | None = None, t_s: float | None = None, role: str = "sample") -> int:
+                  point_no: int | None = None, t_s: float | None = None, role: str = "sample",
+                  quality: str = "", quality_score: float | None = None, quality_reasons: str = "",
+                  static: bool = False) -> int:
         """detections: (species_id, confidence, box) as the model produced them, optionally followed by a
         dict with the real pipeline's extras: track_id, ai_label, top_k [(species_id, score)], novelty,
         unknown_reason."""
@@ -275,16 +277,18 @@ class Database(ProtocolStore):
             sp, conf, b = d[0], d[1], d[2]
             x = d[3] if len(d) > 3 else {}
             rows.append((sp, sp, conf, b.x, b.y, b.w, b.h, x.get("track_id", ""), x.get("ai_label", ""),
-                         json.dumps(x.get("top_k", [])), x.get("novelty"), x.get("unknown_reason", "")))
+                         json.dumps(x.get("top_k", [])), x.get("novelty"), x.get("unknown_reason", ""),
+                         int(x.get("drift", False))))
         with self.lock, self.conn:
             frame_id = self.conn.execute(
-                "INSERT INTO frames (survey_id, source, timestamp, image_path, clarity, video_id, point_no, t_s, role) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO frames (survey_id, source, timestamp, image_path, clarity, video_id, point_no, t_s, role, "
+                "quality, quality_score, quality_reasons, static) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (survey_id, source, timestamp, image_path, None if clarity is None else float(clarity), video_id,
-                 point_no, t_s, role)).lastrowid
+                 point_no, t_s, role, quality, quality_score, quality_reasons, int(static))).lastrowid
             self.conn.executemany(
                 "INSERT INTO detections (frame_id, species_id, model_species_id, confidence, x, y, w, h, "
-                "track_id, ai_label, top_k, novelty, unknown_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "track_id, ai_label, top_k, novelty, unknown_reason, drift) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [(frame_id, *r) for r in rows])
         return frame_id
 

@@ -87,6 +87,7 @@ class Detection(Model):
     suggestions: list[Suggestion] = []  # the species model's top guesses with scores, best first
     novelty: Optional[float] = None  # 0–1 distance to the nearest species with reference pictures
     unknown_reason: str = ""  # plain English, when the AI couldn't name the species
+    possible_drift: bool = False  # moved exactly like the water (debris?): needs a person before it counts
 
 
 class DetectionPatch(Model):
@@ -101,6 +102,9 @@ class Frame(Model):
     source: str  # original file name
     timestamp: str  # "00:01:47", or "Photo"
     clarity: Optional[float] = None  # 0–100 estimate of how clear the water is (None = not measured)
+    quality: str = ""  # "clear" | "moderate" | "muddy" | "obscured" (can't identify fish here)
+    quality_reasons: str = ""  # e.g. "blurred, hazy or turbid"
+    static: bool = False  # same as the previous picture: the detector wasn't run again, boxes carried over
     detections: list[Detection]
 
 
@@ -163,6 +167,7 @@ class AnalysisRequest(Model):
     enhance: bool = True  # clear up murky water
     ignore_specks: bool = True  # drop tiny boxes (sediment, bubbles); size in app.yaml detect.speck_max_area_pct
     look_closer: bool = False  # also search the full-resolution picture in tiles: more small fish, slower
+    tracker: Optional[Literal["bytetrack", "ocsort"]] = None  # None: app.yaml track.tracker
     files: list[str] = Field(min_length=1)  # full paths on this computer
 
 
@@ -261,6 +266,8 @@ class PointOut(Model):
     uncertain: int = 0
     outside: int = 0
     stationary: int = 0  # objects that didn't move (pole markings, rocks, a resting fish?), not counted
+    drifting: int = 0  # tracks that moved like the water (debris?), not counted until a person confirms
+    unidentifiable: int = 0  # possible fish only in pictures too murky to identify them, not counted
     ai: AiPointCount  # the AI's counts, never changed
     clip: Optional[str] = None  # URL path of the ±context clip, e.g. "/points/3/clip"
 

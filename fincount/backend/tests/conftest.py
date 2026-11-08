@@ -73,7 +73,7 @@ def confirm_and_count(client, survey_id: int, person: str = "Ana", start_s: floa
         r = client.patch(f"/videos/{v['id']}", json={"windowStartS": s, "windowEndS": s + 60},
                          headers={"X-FinCount-User": quote(person)})
         assert r.status_code == 200, r.text
-    for _ in range(600):
+    for _ in range(3600):  # up to ~3 min: counting runs in the background
         res = client.get(f"/surveys/{survey_id}/results").json()
         if all(v["countState"] in ("done", "failed") for v in res["videos"]):
             return res

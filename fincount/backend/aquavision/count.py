@@ -34,6 +34,8 @@ class Sighting:
     t_s: float
     conf: float
     box: tuple[float, float, float, float] | None = None  # x, y, w, h in % of the picture (for stationary)
+    drift: bool = False  # the track moved like the water (drift.py)
+    murky: bool = False  # the picture was too murky to identify fish (quality "obscured")
 
 
 @dataclass
@@ -65,6 +67,8 @@ class PointCount:
     uncertain: int = 0  # possible fish within the tolerance window, below the threshold and unconfirmed
     outside: int = 0  # fish seen in the context clip but only outside the tolerance window
     stationary: int = 0  # objects that never moved during the clip, waiting for a person (not counted)
+    drifting: int = 0  # tracks that moved like the water, waiting for a person (not counted)
+    unidentifiable: int = 0  # seen only in pictures too murky to identify fish (not counted)
 
 
 @dataclass
@@ -133,7 +137,7 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
     by_track: dict[str, list[Sighting]] = {}
     for s in sightings:
         by_track.setdefault(s.track_id, []).append(s)
-    tally, uncertain, outside, still = _Tally(), 0, 0, 0
+    tally, uncertain, outside, still, drifting, murky = _Tally(), 0, 0, 0, 0, 0
     for tid, seen in by_track.items():
         label = labels.get(tid, TrackLabel("fish", None, False))
         if label.kind == "not_organism":
@@ -143,6 +147,10 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
             outside += 1
         elif not label.human and is_stationary(seen, stationary_cfg):
             still += 1
+        elif not label.human and any(s.drift for s in seen):
+            drifting += 1
+        elif not label.human and all(s.murky for s in near):
+            murky += 1
         elif _is_sure(near, label, threshold):
             tally.add(label)
         else:
@@ -157,6 +165,12 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
     if uncertain:
         notes.append(f"{uncertain} possible fish below the certainty threshold need checking (not counted)")
         review = True
+    if drifting:
+        notes.append(f"{drifting} moved exactly like the water (debris or weed?) need checking (not counted)")
+        review = True
+    if murky:
+        notes.append(f"{murky} seen only in pictures too murky to identify fish need checking (not counted)")
+        review = True
     if still:
         notes.append(f"{still} object{'s' if still != 1 else ''} that didn't move (pole markings, rocks or a "
                      "resting fish?) need checking (not counted)")
@@ -169,7 +183,7 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
         review = True
     return PointCount(video_id, point_no, timestamp_s, tally.total_fish, tally.invertebrates, tally.per_species,
                       tally.unknown, len(tally.per_species), None, clarity, suggestion, "; ".join(notes), review,
-                      uncertain, outside, still)
+                      uncertain, outside, still, drifting, murky)
 
 
 def mean_count(points: list[PointCount], totals: list[int] | None = None) -> float | None:

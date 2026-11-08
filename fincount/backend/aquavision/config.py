@@ -184,6 +184,13 @@ def _num(section: dict[str, Any], key: str, path: Path, *, minimum: float, stric
     return float(value)
 
 
+def _choice(section: dict[str, Any], key: str, path: Path, options: tuple[str, ...]) -> str:
+    value = section.get(key.split(".")[-1])
+    if value not in options:
+        raise ConfigError(f"{path.name}: {key} must be one of {', '.join(options)} (got {value!r}).")
+    return value
+
+
 def _bool(section: dict[str, Any], key: str, path: Path) -> bool:
     value = section.get(key.split(".")[-1])
     if not isinstance(value, bool):
@@ -235,6 +242,7 @@ class TrackConfig:
     lost_buffer_s: float
     match_iou: float
     activation_threshold: float
+    tracker: str  # "bytetrack" | "ocsort"
 
 
 @dataclass(frozen=True)
@@ -242,6 +250,34 @@ class ClarityConfig:
     weights: dict[str, float]
     category_thresholds: tuple[float, ...]  # clarity index boundaries between visibility categories
     review_threshold: float  # below this, a point needs review ("low visibility")
+
+
+@dataclass(frozen=True)
+class QualityConfig:
+    analysis_width: int
+    clear_min_score: float
+    moderate_min_score: float
+    muddy_min_score: float
+    blur_threshold: float
+    min_contrast: float
+
+
+@dataclass(frozen=True)
+class StaticFilterConfig:
+    enabled: bool
+    conservative: bool
+    static_diff_threshold: float
+    local_change_fraction: float
+    ssim_threshold: float
+    periodic_interval_s: float
+    comparison_width: int
+
+
+@dataclass(frozen=True)
+class DriftConfig:
+    enabled: bool
+    flag_threshold: float
+    min_background_motion_px: float
 
 
 @dataclass(frozen=True)
@@ -280,6 +316,9 @@ class VisionConfig:
     label: LabelConfig
     stationary: StationaryConfig
     motion: MotionConfig
+    quality: QualityConfig
+    static_filter: StaticFilterConfig
+    drift: DriftConfig
 
 
 CLARITY_MEASURES = ("contrast", "sharpness", "haze", "colour", "particles")
@@ -289,9 +328,9 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
     """Model locations and thresholds for detection, species ID, tracking and the clarity index."""
     path = path or default_config_dir() / "app.yaml"
     data = _read(path)
-    models, det, sp, trk, clar, lab, stat, mot = (_section(data, n, path) for n in
-                                                  ("models", "detect", "species", "track", "clarity", "label",
-                                                   "stationary", "motion"))
+    models, det, sp, trk, clar, lab, stat, mot, qual, sf, dr = (
+        _section(data, n, path) for n in ("models", "detect", "species", "track", "clarity", "label", "stationary",
+                                          "motion", "quality", "static_filter", "drift"))
     thresholds = clar.get("category_thresholds")
     if (not isinstance(thresholds, list) or not thresholds
             or not all(isinstance(t, (int, float)) and 0 <= t <= 100 for t in thresholds)
@@ -334,6 +373,7 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             lost_buffer_s=_num(trk, "track.lost_buffer_s", path, minimum=0, strict=True),
             match_iou=_num(trk, "track.match_iou", path, minimum=0, strict=True),
             activation_threshold=_num(trk, "track.activation_threshold", path, minimum=0),
+            tracker=_choice(trk, "track.tracker", path, ("bytetrack", "ocsort")),
         ),
         clarity=ClarityConfig(weights=w, category_thresholds=tuple(float(t) for t in thresholds),
                               review_threshold=_num(clar, "clarity.review_threshold", path, minimum=0)),
@@ -355,7 +395,32 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             confidence=_num(mot, "motion.confidence", path, minimum=0, strict=True),
             max_moving_fraction=_num(mot, "motion.max_moving_fraction", path, minimum=0, strict=True),
         ),
+        quality=QualityConfig(
+            analysis_width=int(_num(qual, "quality.analysis_width", path, minimum=64)),
+            clear_min_score=_num(qual, "quality.clear_min_score", path, minimum=0),
+            moderate_min_score=_num(qual, "quality.moderate_min_score", path, minimum=0),
+            muddy_min_score=_num(qual, "quality.muddy_min_score", path, minimum=0),
+            blur_threshold=_num(qual, "quality.blur_threshold", path, minimum=0),
+            min_contrast=_num(qual, "quality.min_contrast", path, minimum=0),
+        ),
+        static_filter=StaticFilterConfig(
+            enabled=_bool(sf, "static_filter.enabled", path),
+            conservative=_bool(sf, "static_filter.conservative", path),
+            static_diff_threshold=_num(sf, "static_filter.static_diff_threshold", path, minimum=0),
+            local_change_fraction=_num(sf, "static_filter.local_change_fraction", path, minimum=0),
+            ssim_threshold=_num(sf, "static_filter.ssim_threshold", path, minimum=0),
+            periodic_interval_s=_num(sf, "static_filter.periodic_interval_s", path, minimum=0, strict=True),
+            comparison_width=int(_num(sf, "static_filter.comparison_width", path, minimum=32)),
+        ),
+        drift=DriftConfig(
+            enabled=_bool(dr, "drift.enabled", path),
+            flag_threshold=_num(dr, "drift.flag_threshold", path, minimum=0),
+            min_background_motion_px=_num(dr, "drift.min_background_motion_px", path, minimum=0),
+        ),
     )
+    q = cfg.quality
+    if not q.clear_min_score >= q.moderate_min_score >= q.muddy_min_score:
+        raise ConfigError(f"{path.name}: quality scores must go clear ≥ moderate ≥ muddy.")
     for key, value in (("detect.conf_threshold", cfg.detect.conf_threshold), ("detect.nms_iou", cfg.detect.nms_iou),
                        ("species.match_threshold", cfg.species.match_threshold),
                        ("species.novelty_threshold", cfg.species.novelty_threshold),

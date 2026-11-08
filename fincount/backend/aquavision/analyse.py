@@ -27,7 +27,10 @@ from .clips import save_clip
 from .config import AppConfig, ProtocolConfig, VisionConfig
 from .detect import Detection, Detector
 from .frames import iter_sampled_frames, probe_video
+from .drift import DriftFilter
 from .motion import find_moving_objects, small_grey
+from .quality import assess
+from .static_filter import StaticFilter
 from .protocol import (AnalysisWindow, _require_confirmed, context_range, plan_short_window_points,
                        plan_subsample_points)
 from .species import ReferenceIndex, SpeciesResult, crop_box, match
@@ -56,6 +59,10 @@ class Picture:
     detections: list[Detection] = field(default_factory=list)
     role: str = "photo"  # "point" (a point's context clip) | "scan" (richness scan) | "photo"
     point_no: int | None = None
+    quality: str = ""  # "clear" | "moderate" | "muddy" | "obscured" (quality.py)
+    quality_score: float | None = None
+    quality_reasons: str = ""
+    static: bool = False  # same as the last searched picture: its boxes were carried over
 
 
 @dataclass
@@ -73,6 +80,7 @@ class FileResult:
     track_crops: dict[str, np.ndarray]  # track_id → best crop (BGR), for labelling and reference pictures
     window: AnalysisWindow | None = None  # videos only
     points: list[PointPlan] = field(default_factory=list)  # videos only
+    drifting: set[str] = field(default_factory=set)  # tracks moving like the water (drift.py)
 
 
 @dataclass
@@ -119,12 +127,13 @@ class Analyser:
     """Runs the vision models over one file. Models are created once and reused for every file."""
 
     def __init__(self, cfg: VisionConfig, detector: Detector, encoder=None, max_width: int = 1920,
-                 look_closer: bool = False):
+                 look_closer: bool = False, tracker: str | None = None):
         self.cfg = cfg
         self.detector = detector
         self.encoder = encoder  # BioClipEncoder, or None when the species model isn't installed
         self.max_width = max_width
         self.look_closer = look_closer  # tiled search on the full-resolution picture (slower)
+        self.tracker = tracker  # "bytetrack" | "ocsort" (None: app.yaml track.tracker)
 
     def _detect(self, raw: np.ndarray, img: np.ndarray, frame_idx: int, t_s: float, enhance: bool):
         """Detections in `img` (the picture staff see). With look_closer, searched in `raw` (full size)."""
@@ -143,14 +152,28 @@ class Analyser:
                       image_key: str, enhance: bool, crops: dict[str, _TrackCrops], pictures: list[Picture],
                       save_picture: Callable[[np.ndarray, str], Path], name: Callable[[int], str], role: str,
                       point_no: int | None, keep_empty: bool, cancelled: Callable[[], bool],
-                      tick: Callable[[], None]) -> None:
-        """Detect (and track) every picture from `sources`, keeping crops for species ID."""
+                      tick: Callable[[], None], drift: DriftFilter | None = None) -> None:
+        """Detect (and track) every picture from `sources`, keeping crops for species ID.
+
+        Per picture (SeaSieve workflow): quality check → the cleared-up picture is only searched when
+        the picture isn't clear → static pictures reuse the last boxes → detector → tracker → drift.
+        """
+        static = StaticFilter(self.cfg.static_filter) if tracker else None
+        last: list[Detection] = []
         for n, (frame_idx, t_s, stamp, raw) in enumerate(sources, 1):
             if cancelled():
                 raise Cancelled
             img = _fit(raw, self.max_width)
-            dets = self._detect(raw, img, frame_idx, t_s, enhance)
+            qual = assess(img, self.cfg.quality)
+            is_static = bool(static and last is not None and static.is_static(img, t_s))
+            if is_static:  # same picture as before: carry the boxes over (the tracker keeps the same fish)
+                dets = [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in last]
+            else:
+                dets = self._detect(raw, img, frame_idx, t_s, enhance and qual.degraded)
+            last = dets
             dets = tracker.update(dets) if tracker else image_tracks(image_key, dets)
+            if drift is not None:
+                drift.add(img, {d.track_id: d.box for d in dets})
             for old, new in (tracker.relinked.items() if tracker else ()):
                 if old in crops:  # a first sighting joined a track: move its crops there too
                     for q, c in crops.pop(old).crops:
@@ -164,7 +187,8 @@ class Analyser:
             if dets or keep_empty:
                 saved = save_picture(img, name(n))
                 pictures.append(Picture(saved, img.shape[1], img.shape[0], frame_idx, t_s, stamp,
-                                        clarity_index(img, self.cfg.clarity), dets, role, point_no))
+                                        clarity_index(img, self.cfg.clarity), dets, role, point_no, qual.category,
+                                        qual.score, ", ".join(qual.reasons), is_static))
             tick()
 
     def _add_moving_fish(self, pictures: list[Picture], greys: list[np.ndarray], key: str,
@@ -259,12 +283,14 @@ class Analyser:
         pictures: list[Picture] = []
         crops: dict[str, _TrackCrops] = {}
         points: list[PointPlan] = []
+        drifting: set[str] = set()
         for p in plans:
             start, end = context_range(p.timestamp_s, ctx, info.duration_s)
             # Start the sampling grid so the point's own moment is one of the pictures read.
             grid_start = p.timestamp_s - int((p.timestamp_s - start) * fps) / fps
             frames = iter_sampled_frames(path, file_key, grid_start, end, fps, preroll_s=app.frames.seek_preroll_s)
-            tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps)
+            tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps, self.tracker)
+            drift = DriftFilter(self.cfg.drift)
             first = len(pictures)
             greys: list[np.ndarray] = []  # small grey copies for motion detection (stationary camera)
 
@@ -276,7 +302,8 @@ class Analyser:
 
             self._run_pictures(source(), tracker, file_key, enhance, crops, pictures, save_picture,
                                lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
-                               cancelled, tick)
+                               cancelled, tick, drift)
+            drifting.update(drift.drifting())
             self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
             clip: Path | None = p.clip_path
             try:
@@ -287,7 +314,7 @@ class Analyser:
             points.append(PointPlan(p.point_no, p.timestamp_s, clip))
 
         # Species richness: sparse scan of the whole window (only pictures with something in them are kept).
-        scan_tracker = VideoTracker(f"{file_key}-scan", self.cfg.track, scan_fps)
+        scan_tracker = VideoTracker(f"{file_key}-scan", self.cfg.track, scan_fps, self.tracker)
         frames = iter_sampled_frames(path, file_key, window.start_s, window.end_s, scan_fps,
                                      preroll_s=app.frames.seek_preroll_s)
         self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
@@ -295,4 +322,4 @@ class Analyser:
                            None, False, cancelled, tick)
         species, vectors, best = self._identify(pictures, crops, index, cancelled)
         on_progress(1.0)
-        return FileResult(pictures, species, vectors, best, window, points)
+        return FileResult(pictures, species, vectors, best, window, points, drifting)

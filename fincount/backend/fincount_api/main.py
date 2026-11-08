@@ -229,7 +229,8 @@ def get_survey(survey_id: int):
     info, frames = found
     return SurveyData(survey=info, frames=[
         Frame(id=str(f["id"]), image=f"/frames/{f['id']}/image", source=f["source"], timestamp=f["timestamp"],
-              clarity=f["clarity"], detections=dets)
+              clarity=f["clarity"], detections=dets, quality=f["quality"], quality_reasons=f["quality_reasons"],
+              static=bool(f["static"]))
         for f, dets in frames
     ])
 

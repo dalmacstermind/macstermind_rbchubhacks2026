@@ -8,6 +8,7 @@ export type Prefs = {
   enhance: boolean;
   ignoreSpecks: boolean;
   lookCloser: boolean; // tiled search for small fish (slower)
+  tracker: "bytetrack" | "ocsort";
   qcPercent: number; // % of pictures picked for blind QC
   qcMaxDiff: number; // % difference that asks for a recount
   qcTarget: number; // % of QC pictures that should agree
@@ -20,6 +21,7 @@ export const DEFAULT_PREFS: Prefs = {
   enhance: true,
   ignoreSpecks: true,
   lookCloser: false,
+  tracker: "bytetrack",
   qcPercent: 10,
   qcMaxDiff: 6,
   qcTarget: 95,
