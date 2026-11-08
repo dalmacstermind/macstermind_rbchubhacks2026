@@ -12,7 +12,8 @@ import {
 import { api } from "../api";
 import { ExportMenu } from "../components/ExportMenu";
 import { MatchAgainButton } from "../components/MatchAgainButton";
-import { ProtocolResults } from "../components/ProtocolResults";
+import { CountProgress } from "../components/CountProgress";
+import { ProtocolResults, type SurveyCountProgress } from "../components/ProtocolResults";
 import { SurveyDoneCard } from "../components/SurveyDoneCard";
 import { buildWorkbook } from "../exportXlsx";
 import type { QcState } from "../overview";
@@ -58,7 +59,7 @@ export function ReportView({
   const [saved, setSaved] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [counting, setCounting] = useState(false); // a video is still being counted: its pictures come later
+  const [counting, setCounting] = useState<SurveyCountProgress | null>(null); // pictures come when counting is done
   const open = openItems(s, qc ?? undefined);
   const fishRows = s.rows.filter((r) => r.sp.kind !== "invertebrate");
   const invRows = s.rows.filter((r) => r.sp.kind === "invertebrate");
@@ -185,11 +186,24 @@ export function ReportView({
 
         {s.rows.length === 0 ? (
           <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground">
-            {counting
-              ? "Counting the points. The pictures and their fish appear here when it's done."
-              : s.toReview > 0
-                ? "No fish counted yet. Check the possible fish above to add them to the report."
-                : "No fish were found in this footage."}
+            {counting ? (
+              <div className="mx-auto max-w-md text-left">
+                <CountProgress
+                  state={counting.state}
+                  percent={counting.percent}
+                  detail={counting.detail}
+                  etaS={counting.etaS}
+                  size={112}
+                />
+                <p className="mt-4 text-center text-sm">
+                  The pictures and their fish appear here when counting is done.
+                </p>
+              </div>
+            ) : s.toReview > 0 ? (
+              "No fish counted yet. Check the possible fish above to add them to the report."
+            ) : (
+              "No fish were found in this footage."
+            )}
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -260,10 +274,10 @@ export function ReportView({
 
         <Disclosure label="How fish are counted">
           <div className="rounded-xl bg-secondary/50 px-5 py-4 text-sm text-muted-foreground">
-            The same fish often shows up in many pictures as it swims past. To avoid counting it twice, TIDE uses
-            the <b className="text-foreground">most fish of each species seen in a single picture</b> (known as MaxN,
-            the standard count for video surveys). “Sightings” is every time it was spotted. Invertebrates such as crabs
-            are counted separately from fish.
+            The same fish often shows up in many pictures as it swims past. To avoid counting it twice, TIDE uses the{" "}
+            <b className="text-foreground">most fish of each species seen in a single picture</b> (known as MaxN, the
+            standard count for video surveys). “Sightings” is every time it was spotted. Invertebrates such as crabs are
+            counted separately from fish.
           </div>
         </Disclosure>
 

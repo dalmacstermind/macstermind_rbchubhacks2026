@@ -158,7 +158,9 @@ export type VideoResult = {
   shortWindow: boolean; // shorter than the protocol window: counts not comparable with full windows
   confirmedBy: string;
   countState: "" | "queued" | "running" | "done" | "failed"; // "" = waiting for a confirmed window
-  countDetail: string;
+  countDetail: string; // what counting is doing now ("Identifying the species"), or why it failed
+  countPercent: number | null; // 0–100 while queued or running
+  countEtaS: number | null; // estimated seconds left while running (null: not known yet)
   points: PointResult[];
   meanCount: number | null;
   meanCountAi: number | null;

@@ -322,7 +322,9 @@ class VideoOut(Model):
     short_window: bool = False  # shorter than the protocol window (window.allow_short_videos)
     confirmed_by: str = ""
     count_state: str = ""  # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed"
-    count_detail: str = ""
+    count_detail: str = ""  # what counting is doing now ("Identifying the species"), or why it failed
+    count_percent: Optional[float] = None  # 0–100 while queued or running
+    count_eta_s: Optional[float] = None  # estimated seconds left while running (None: not known yet)
     points: list[PointOut]
     mean_count: Optional[float] = None
     mean_count_ai: Optional[float] = None

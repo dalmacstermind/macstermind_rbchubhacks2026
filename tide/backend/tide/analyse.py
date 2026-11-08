@@ -43,6 +43,10 @@ log = logging.getLogger(__name__)
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv"}
 CROPS_PER_TRACK = 5  # best crops kept per organism for species ID
+# Share of the progress bar for searching the pictures; species ID takes most of the rest. Measured on
+# the GTX 1650 Ti: species ID is about a third of the time, so a steady bar gives a fair time left.
+SEARCH_SHARE = 0.65
+IDENTIFY_CHUNK = 128  # crops per species-model call (progress is reported between calls)
 CROPS_PER_MOTION_TRACK = 2  # motion-only finds are small blobs: more crops cost time, not accuracy
 
 
@@ -231,7 +235,8 @@ class Analyser:
                     _crop_quality(images[mb.frame_index], d), c)
 
     def _identify(self, pictures: list[Picture], crops: dict[str, _TrackCrops], index: ReferenceIndex,
-                  cancelled: Callable[[], bool]):
+                  cancelled: Callable[[], bool], on_progress: Callable[[float], None] | None = None):
+        """Species for every track. on_progress(0–1) reports how many crops have been encoded."""
         species: dict[str, SpeciesResult] = {}
         vectors: dict[str, np.ndarray] = {}
         best: dict[str, np.ndarray] = {}
@@ -239,7 +244,16 @@ class Analyser:
         # Every track's crops go through the species model together, in full batches (much faster
         # than one small batch per track), then are split back per track.
         flat = [(tid, c) for tid in tids if self.encoder is not None for _, c in crops.get(tid, _TrackCrops()).crops]
-        encoded = self.encoder.encode([c for _, c in flat]) if flat else None
+        encoded = None
+        if flat:  # in chunks, so progress can be shown (species ID can take a minute)
+            parts = []
+            for i in range(0, len(flat), IDENTIFY_CHUNK):
+                if cancelled():
+                    raise Cancelled
+                parts.append(self.encoder.encode([c for _, c in flat[i:i + IDENTIFY_CHUNK]]))
+                if on_progress:
+                    on_progress(min(1.0, (i + IDENTIFY_CHUNK) / len(flat)))
+            encoded = np.concatenate(parts)
         rows: dict[str, list[int]] = {}
         for i, (tid, _) in enumerate(flat):
             rows.setdefault(tid, []).append(i)
@@ -299,7 +313,7 @@ class Analyser:
         def tick():
             nonlocal done
             done += 1
-            on_progress(min(0.9, 0.9 * done / max(1, total)))
+            on_progress(min(SEARCH_SHARE, SEARCH_SHARE * done / max(1, total)))
 
         pictures: list[Picture] = []
         crops: dict[str, _TrackCrops] = {}
@@ -342,7 +356,8 @@ class Analyser:
         self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
                            file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
                            None, False, cancelled, tick, seen=seen)
-        species, vectors, best = self._identify(pictures, crops, index, cancelled)
+        species, vectors, best = self._identify(pictures, crops, index, cancelled,
+                                                lambda f: on_progress(SEARCH_SHARE + (0.98 - SEARCH_SHARE) * f))
         clip_writer.shutdown(wait=True)
         for i, job in clip_jobs:
             try:

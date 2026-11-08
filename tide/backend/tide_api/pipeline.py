@@ -26,7 +26,7 @@ import numpy as np
 
 from tide import device
 from tide.analyse import IMAGE_EXT as AV_IMAGE_EXT
-from tide.analyse import Analyser, Cancelled, FileResult, read_image
+from tide.analyse import SEARCH_SHARE, Analyser, Cancelled, FileResult, read_image
 from tide.config import AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_vision_config
 from tide.detect import CfdDetector, ModelMissingError
 from tide.frames import probe_video
@@ -547,13 +547,19 @@ class Jobs:
                                 v["confirmed_by"], datetime.now())
         for old in self.db.clear_video_counts(video_id):  # a re-confirmed window replaces the old count
             Path(old).unlink(missing_ok=True)
-        self.db.set_count_state(video_id, "running", "Loading the models")
+        self.db.set_count_state(video_id, "running", "Loading the models", 0)
         analyser = VISION.analyser(look_closer=req.look_closer, tracker=req.tracker)
+        started = time.monotonic()
         out_dir = self.surveys_dir() / str(v["survey_id"])
         key = window.video_id
 
         def progress(fr: float):
-            self.db.set_count_state(video_id, "running", f"Counting the points: {int(fr * 100)}%")
+            stage = ("Searching the pictures for fish" if fr < SEARCH_SHARE else
+                     "Identifying the species" if fr < 0.99 else "Saving the results")
+            spent = time.monotonic() - started
+            # Time left from the pace so far; only once there's enough to go on (and never negative).
+            eta = max(0.0, spent * (1 - fr) / fr) if fr >= 0.05 and spent >= 5 else None
+            self.db.set_count_state(video_id, "running", stage, round(fr * 100, 1), eta)
 
         res = analyser.analyse_video(
             Path(v["path"]), key, window=window, protocol=self.protocol_for(v["survey_id"]), app=self.app,
@@ -563,6 +569,7 @@ class Jobs:
             on_progress=progress, cancelled=lambda: False, short_window=bool(v["short_window"]))
         for pt in res.points:
             self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
+        progress(0.99)
         registry = {s.id for s in self.db.list_species()}
         pics, found, fish = self._store_result(v["survey_id"], Path(v["path"]), res, req, registry, out_dir,
                                                video_id)

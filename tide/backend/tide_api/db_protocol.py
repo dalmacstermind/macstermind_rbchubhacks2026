@@ -38,6 +38,8 @@ PROTOCOL_MIGRATIONS = [
     ("videos", "file_key", "TEXT NOT NULL DEFAULT ''"),
     ("videos", "count_state", "TEXT NOT NULL DEFAULT ''"),  # "" | "queued" | "running" | "done" | "failed"
     ("videos", "count_detail", "TEXT NOT NULL DEFAULT ''"),
+    ("videos", "count_percent", "REAL"),  # 0–100 while counting (None when not counting)
+    ("videos", "count_eta_s", "REAL"),  # estimated seconds left (None until it can be estimated)
     ("videos", "short_window", "INTEGER NOT NULL DEFAULT 0"),  # shorter than the protocol window (not comparable)
     # The settings a survey started with, so counting after a window is confirmed uses the same ones.
     ("surveys", "enhance", "INTEGER NOT NULL DEFAULT 1"),
@@ -67,8 +69,10 @@ class ProtocolStore:
         self.run("UPDATE videos SET file_key = ?, recorded_at = ?, transect = ?, stat = ? WHERE id = ?",
                  file_key, recorded_at, transect, stat, video_id)
 
-    def set_count_state(self, video_id: int, state: str, detail: str = ""):
-        self.run("UPDATE videos SET count_state = ?, count_detail = ? WHERE id = ?", state, detail, video_id)
+    def set_count_state(self, video_id: int, state: str, detail: str = "", percent: float | None = None,
+                        eta_s: float | None = None):
+        self.run("UPDATE videos SET count_state = ?, count_detail = ?, count_percent = ?, count_eta_s = ? "
+                 "WHERE id = ?", state, detail, percent, eta_s, video_id)
 
     def unfinished_counts(self) -> list[int]:
         """Videos whose counting was waiting or running when the back end last stopped, the most
