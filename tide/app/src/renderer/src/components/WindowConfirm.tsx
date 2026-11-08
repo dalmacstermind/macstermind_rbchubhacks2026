@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { Person, VideoResult } from "../../../shared/api";
 import { api } from "../api";
 import { Chip, btnPrimary } from "../ui";
+import { CountControls } from "./CountControls";
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
@@ -56,11 +57,7 @@ export function WindowConfirm({
             Shorter than the protocol window: not comparable with full windows
           </Chip>
         )}
-        {v.countState === "queued" || v.countState === "running" ? (
-          <Chip tone="working">{v.countDetail || "Counting…"}</Chip>
-        ) : v.countState === "failed" ? (
-          <Chip tone="failed">{v.countDetail}</Chip>
-        ) : null}
+        {v.confirmedBy && <CountControls video={v} person={person} onChanged={onChanged} />}
       </div>
       <p className="mt-2 text-muted-foreground">
         Proposed{" "}

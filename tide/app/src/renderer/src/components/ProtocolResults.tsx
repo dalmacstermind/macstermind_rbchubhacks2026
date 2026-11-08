@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Person, SurveyResults } from "../../../shared/api";
 import type { Species } from "../../../shared/survey";
 import { api } from "../api";
+import { Alert, btnGhost, plural } from "../ui";
 import { EvaluationPanel } from "./EvaluationPanel";
 import { ImageResultsTable } from "./ImageResultsTable";
 import { VideoResultCard } from "./VideoResultCard";
@@ -35,13 +36,23 @@ export function ProtocolResults({
   // Reload whenever the survey changes, or something else on the page edited it.
   useEffect(load, [load, version]);
 
-  // While a video is being counted (after its window was confirmed), check again every 2 seconds.
+  // Keep checking while something can still change without this page knowing (a window confirmed or
+  // counting started or stopped elsewhere): every 2 seconds while a video is being counted, every 5
+  // seconds while a window waits for confirmation. Once every video is counted, it stops checking.
   const counting = !!results?.videos.some((v) => v.countState === "queued" || v.countState === "running");
+  const unconfirmed = results?.videos.filter((v) => !v.tooShort && !v.confirmedBy) ?? [];
+  const waiting = unconfirmed.length > 0;
   useEffect(() => {
-    if (!counting) return;
-    const t = setInterval(load, 2000);
+    if (!counting && !waiting) return;
+    const t = setInterval(load, counting ? 2000 : 5000);
     return () => clearInterval(t);
-  }, [counting, load]);
+  }, [counting, waiting, load]);
+
+  // Also check again whenever staff come back to TIDE's window, in case something changed meanwhile.
+  useEffect(() => {
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, [load]);
 
   // When counting finishes, the report's pictures (Check the fish, picture-by-picture counts) are new too.
   const wasCounting = useRef(false);
@@ -67,6 +78,26 @@ export function ProtocolResults({
         </div>
         {results.videos.length > 0 && <EvaluationPanel surveyId={surveyId} />}
       </div>
+      {waiting && (
+        <Alert
+          tone="warning"
+          icon="⚠"
+          title={`${plural(unconfirmed.length, "video")} waiting for you: confirm the analysis window`}
+          action={
+            <button
+              className={btnGhost}
+              onClick={() =>
+                document.getElementById(`video-${unconfirmed[0]?.id}`)?.scrollIntoView({ behavior: "smooth" })
+              }
+            >
+              Show me
+            </button>
+          }
+        >
+          TIDE has proposed when each video&apos;s analysis window starts. No fish are counted until a person checks it
+          and chooses <b>Confirm window and count</b>.
+        </Alert>
+      )}
       {results.videos.map((v) => (
         <VideoResultCard
           key={v.id}

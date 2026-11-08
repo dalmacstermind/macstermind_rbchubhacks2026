@@ -58,6 +58,8 @@ export type SurveyInfo = {
   protocol: ProtocolSettings;
   /** false for surveys processed before TIDE recorded the values: then `protocol` is the shipped defaults. */
   protocolRecorded: boolean;
+  /** Videos whose analysis window no person has confirmed yet: nothing of them is counted. */
+  windowsToConfirm: number;
 };
 
 export type SurveyData = { survey: SurveyInfo; frames: Frame[] };
@@ -162,7 +164,8 @@ export type VideoResult = {
   tooShort: boolean; // flagged: not processed
   shortWindow: boolean; // shorter than the protocol window: counts not comparable with full windows
   confirmedBy: string;
-  countState: "" | "queued" | "running" | "done" | "failed"; // "" = waiting for a confirmed window
+  // "" = waiting for a confirmed window; "stopped" = a person stopped it, or TIDE closed while counting
+  countState: "" | "queued" | "running" | "done" | "failed" | "stopped";
   countDetail: string;
   points: PointResult[];
   meanCount: number | null;
@@ -373,6 +376,10 @@ export type TideApi = {
   videos: {
     /** Confirm (or change) a video's analysis window, saved with the person's name. */
     confirmWindow: (id: string, startS: number, endS: number, person: string) => Promise<Video>;
+    /** Count the confirmed window again (after counting was stopped, failed or interrupted). */
+    startCount: (id: number, person: string) => Promise<void>;
+    /** Stop counting; nothing of the stopped count is kept. */
+    stopCount: (id: number, person: string) => Promise<void>;
     /** Correct the recording date, Transect or STAT, or confirm the video's visibility. */
     details: (id: number, patch: VideoDetailsPatch) => Promise<void>;
   };

@@ -349,7 +349,8 @@ The species TIDE can name (`views/Species.tsx`). It is always called **Species R
 - **Analysis window:** `propose_window()` proposes it during processing (a later start if sediment
   hasn't settled) and stores it in the `videos` table. It is **never applied without a person**:
   subsample points and the richness scan only accept an `AnalysisWindow` confirmed via
-  `PATCH /videos/{id}`. Videos shorter than trim + window + trim are flagged `too_short` and can't
+  `PATCH /videos/{id}`. The app tells staff when windows wait for them (`SurveyInfo.windowsToConfirm`:
+  the finish message, the Report and the survey list). Videos shorter than trim + window + trim are flagged `too_short` and can't
   be confirmed or processed.
 - **Protocol settings (Settings screen):** staff change the window, subsample and QC values in the
   app. The shipped defaults stay in `backend/config/protocol.yaml` (never written by the app); staff
@@ -560,6 +561,7 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | New | `GET /surveys/{id}/results` | Videos with per-point counts, MeanCount, richness; image counts |
 | Done (US-2.1) | `GET /surveys/{id}/videos` | Each video's proposed window, flags (`tooShort`, `settled`) and confirmed window |
 | Done (US-2.1) | `PATCH /videos/{id}` | Confirm analysis window (`windowStartS`, `windowEndS`); person from the `X-TIDE-User` header (URL-encoded, must be on the people list). Later: recording date, visibility |
+| Done | `POST /videos/{id}/count` · `POST /videos/{id}/count/stop` | Count a confirmed window again; stop counting (needs `X-TIDE-User`; nothing of a stopped count is saved). Counts interrupted by closing TIDE are marked `stopped` at start-up |
 | New | `PATCH /points/{id}` | Review edit; keeps the original AI value |
 | New | `GET /media/{fileId}` | Stream a video or image (HTTP range requests so the player can seek) |
 | New | `GET /points/{id}/clip` | The saved ±context clip for a point |

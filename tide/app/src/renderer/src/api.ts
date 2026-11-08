@@ -165,6 +165,8 @@ export const api: TideApi = {
       http<Video>("PATCH", `/videos/${enc(id)}`, { windowStartS: startS, windowEndS: endS }, {
         "X-TIDE-User": enc(person),
       }),
+    startCount: (id, person) => http("POST", `/videos/${id}/count`, undefined, { "X-TIDE-User": enc(person) }),
+    stopCount: (id, person) => http("POST", `/videos/${id}/count/stop`, undefined, { "X-TIDE-User": enc(person) }),
     details: (id, patch) => http("PATCH", `/videos/${id}/details`, patch),
   },
   points: { update: (id, patch) => http("PATCH", `/points/${id}`, patch) },

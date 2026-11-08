@@ -276,7 +276,9 @@ class Database(ProtocolStore):
 
     # ── Surveys ──
 
-    _SURVEY = "SELECT s.*, (SELECT COUNT(*) FROM frames f WHERE f.survey_id = s.id) AS frame_count FROM surveys s"
+    _SURVEY = ("SELECT s.*, (SELECT COUNT(*) FROM frames f WHERE f.survey_id = s.id) AS frame_count, "
+               "(SELECT COUNT(*) FROM videos v WHERE v.survey_id = s.id AND v.too_short = 0 "
+               "AND COALESCE(v.confirmed_by, '') = '') AS windows_to_confirm FROM surveys s")
 
     @staticmethod
     def _info(r) -> SurveyInfo:
@@ -284,7 +286,8 @@ class Database(ProtocolStore):
         return SurveyInfo(id=r["id"], site=r["site"], threshold=r["threshold"],
                           created_at=r["created_at"], survey_date=r["survey_date"], created_by=r["created_by"],
                           files=json.loads(r["files"]), frame_count=r["frame_count"], status=r["status"],
-                          protocol=to_settings(snapshot or default_protocol()), protocol_recorded=snapshot is not None)
+                          protocol=to_settings(snapshot or default_protocol()), protocol_recorded=snapshot is not None,
+                          windows_to_confirm=r["windows_to_confirm"])
 
     def create_survey(self, site: str, threshold: float, files: list[str],
                       survey_date: str = "", created_by: str = "") -> int:

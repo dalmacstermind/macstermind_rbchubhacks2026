@@ -302,20 +302,29 @@ function SurveyRow({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {o.open.length === 0 ? (
-          <Chip tone="done">All checked</Chip>
-        ) : (
-          o.open.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => onOpen(s.id, item.key)}
-              className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
-              title="Go there"
-            >
-              <Chip tone="review">{item.text} →</Chip>
-            </button>
-          ))
+        {s.windowsToConfirm > 0 && (
+          <button
+            onClick={() => onOpen(s.id, "report")}
+            className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+            title="Go there"
+          >
+            <Chip tone="review">
+              {s.windowsToConfirm === 1 ? "1 analysis window" : `${s.windowsToConfirm} analysis windows`} to confirm →
+            </Chip>
+          </button>
         )}
+        {o.open.length === 0
+          ? s.windowsToConfirm === 0 && <Chip tone="done">All checked</Chip>
+          : o.open.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => onOpen(s.id, item.key)}
+                className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+                title="Go there"
+              >
+                <Chip tone="review">{item.text} →</Chip>
+              </button>
+            ))}
         <button className={`${btnLink} ml-2`} onClick={() => onOpen(s.id, "report")}>
           Open report
         </button>

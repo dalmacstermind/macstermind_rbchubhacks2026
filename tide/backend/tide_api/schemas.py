@@ -160,6 +160,7 @@ class SurveyInfo(Model):
     # recorded, the shipped defaults, and protocol_recorded is False (the report says so).
     protocol: Optional[ProtocolSettings] = None
     protocol_recorded: bool = False
+    windows_to_confirm: int = 0  # videos whose analysis window no person has confirmed yet (nothing counted)
 
 
 class SurveyPatch(Model):
@@ -327,7 +328,9 @@ class VideoOut(Model):
     too_short: bool = False  # flagged: not processed
     short_window: bool = False  # shorter than the protocol window (window.allow_short_videos)
     confirmed_by: str = ""
-    count_state: str = ""  # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed"
+    # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed" | "stopped" (by a person,
+    # or because TIDE closed while counting; nothing of a stopped count is saved)
+    count_state: str = ""
     count_detail: str = ""
     points: list[PointOut]
     mean_count: Optional[float] = None

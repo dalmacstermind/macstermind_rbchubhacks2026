@@ -58,6 +58,9 @@ PROTOCOL_MIGRATIONS = [
 ]
 
 
+INTERRUPTED = "Counting was interrupted because TIDE closed. Nothing was saved: count again to start over."
+
+
 class ProtocolStore:
     """Methods for videos, points and labels (uses Database.run/all/one)."""
 
@@ -69,6 +72,12 @@ class ProtocolStore:
 
     def set_count_state(self, video_id: int, state: str, detail: str = ""):
         self.run("UPDATE videos SET count_state = ?, count_detail = ? WHERE id = ?", state, detail, video_id)
+
+    def stop_interrupted_counts(self):
+        """At start-up: a count that was waiting or running when TIDE closed can't carry on, so it is
+        marked stopped (otherwise the report would say "Counting…" forever). Nothing of it was saved."""
+        self.run("UPDATE videos SET count_state = 'stopped', count_detail = ? "
+                 "WHERE count_state IN ('queued', 'running')", INTERRUPTED)
 
     def clear_video_counts(self, video_id: int):
         """Before counting a (re)confirmed window: remove the previous count's points, pictures and labels."""
