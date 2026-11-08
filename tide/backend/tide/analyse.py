@@ -31,7 +31,7 @@ import numpy as np
 from .clarity import clarity_index
 from .clips import save_clip
 from .config import AppConfig, ProtocolConfig, VisionConfig
-from .detect import Detection, Detector
+from .detect import Detection, Detector, nms
 from .frames import iter_sampled_frames, probe_video
 from .drift import DriftFilter
 from .motion import find_moving_objects, small_grey
@@ -148,16 +148,25 @@ class Analyser:
         self.look_closer = look_closer  # tiled search on the full-resolution picture (slower)
         self.tracker = tracker  # "bytetrack" | "ocsort" (None: app.yaml track.tracker)
 
-    def _detect(self, raw: np.ndarray, img: np.ndarray, frame_idx: int, t_s: float, enhance: bool):
-        """Detections in `img` (the picture staff see). With look_closer, searched in `raw` (full size)."""
-        tiled = getattr(self.detector, "detect_tiled", None)
-        if not self.look_closer or tiled is None:
-            return self.detector.detect(img, frame_idx, t_s, enhance=enhance)
-        scale = img.shape[1] / raw.shape[1]
-        dets = tiled(raw, self.cfg.detect.look_closer_grid, frame_idx, t_s, enhance=enhance)
-        for d in dets:
-            d.box = tuple(v * scale for v in d.box)
-        return [d for d in dets if min(d.box[2] - d.box[0], d.box[3] - d.box[1]) >= self.cfg.detect.min_box_px]
+    def _detect(self, raw: np.ndarray, img: np.ndarray, frame_idx: int, t_s: float, enhance: bool,
+                close: bool = False):
+        """Detections in `img` (the picture staff see).
+
+        close (the moments that are counted) or look_closer (every picture): the whole picture, plus
+        the full-resolution picture in detector-sized tiles (detect.detect_close), merged so that one
+        fish keeps one box.
+        """
+        dets = self.detector.detect(img, frame_idx, t_s, enhance=enhance)
+        tiled = getattr(self.detector, "detect_close", None)
+        if not (close or self.look_closer) or tiled is None:
+            return dets
+        more = tiled(raw, img.shape[1] / raw.shape[1], frame_idx, t_s, enhance=enhance)
+        both = dets + more
+        if not both:
+            return []
+        boxes = np.asarray([d.box for d in both], np.float32)
+        scores = np.asarray([d.conf for d in both], np.float32)
+        return [both[i] for i in nms(boxes, scores, self.cfg.detect.nms_iou, self.cfg.detect.contain)]
 
     # ── shared steps ──
 
@@ -166,13 +175,15 @@ class Analyser:
                       save_picture: Callable[[np.ndarray, str], Path], name: Callable[[int], str], role: str,
                       point_no: int | None, keep_empty: bool, cancelled: Callable[[], bool],
                       tick: Callable[[], None], drift: DriftFilter | None = None,
-                      seen: dict[int, tuple[QualityResult, list[Detection]]] | None = None) -> None:
+                      seen: dict[int, tuple[QualityResult, list[Detection], bool]] | None = None,
+                      close_at: Callable[[float], bool] | None = None) -> None:
         """Detect (and track) every picture from `sources`, keeping crops for species ID.
 
         Per picture: quality check → the cleared-up picture is only searched when
         the picture isn't clear → static pictures reuse the last boxes → detector → tracker → drift.
         seen: pictures already searched in this video (by frame number). Points close together share
         pictures (a short video's context windows overlap), and each picture is only searched once.
+        close_at(t_s): this picture is counted, so it gets the close search too (never skipped as static).
         """
         static = StaticFilter(self.cfg.static_filter) if tracker else None
         last: list[Detection] = []
@@ -180,17 +191,20 @@ class Analyser:
             if cancelled():
                 raise Cancelled
             img = _fit(raw, self.max_width)
+            close = bool(close_at and close_at(t_s))
             known = seen.get(frame_idx) if seen is not None else None
+            if known and close and not known[2]:
+                known = None  # searched before without the close search: search it again, closely
             qual = known[0] if known else assess(img, self.cfg.quality)
-            is_static = bool(not known and static and static.is_static(img, t_s))
+            is_static = bool(not known and static and static.is_static(img, t_s)) and not close
             if known:  # searched already for an overlapping point: same boxes, new track ids
                 dets = [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in known[1]]
             elif is_static:  # same picture as before: carry the boxes over (the tracker keeps the same fish)
                 dets = [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in last]
             else:
-                dets = self._detect(raw, img, frame_idx, t_s, enhance and qual.degraded)
+                dets = self._detect(raw, img, frame_idx, t_s, enhance and qual.degraded, close)
             if seen is not None and not known:
-                seen[frame_idx] = (qual, [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in dets])
+                seen[frame_idx] = (qual, [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in dets], close)
             last = dets
             dets = tracker.update(dets) if tracker else image_tracks(image_key, dets)
             if drift is not None:
@@ -332,7 +346,8 @@ class Analyser:
         pictures: list[Picture] = []
         crops: dict[str, _TrackCrops] = {}
         self._run_pictures([(0, 0.0, "Photo", read_image(path))], None, file_key, enhance, crops, pictures,
-                           save_picture, lambda n: "photo", "photo", None, True, cancelled, lambda: None)
+                           save_picture, lambda n: "photo", "photo", None, True, cancelled, lambda: None,
+                           close_at=lambda t: self.cfg.detect.close_search)
         on_progress(0.8)
         species, vectors, best = self._identify(pictures, crops, index, cancelled)
         on_progress(1.0)
@@ -371,7 +386,8 @@ class Analyser:
         crops: dict[str, _TrackCrops] = {}
         points: list[PointPlan] = []
         drifting: set[str] = set()
-        seen: dict[int, tuple[QualityResult, list[Detection]]] = {}  # each picture is searched once
+        seen: dict[int, tuple[QualityResult, list[Detection], bool]] = {}  # each picture is searched once
+        tol = protocol.count.effective_tolerance_s
         # Context clips are written on the CPU while the GPU searches the next point's pictures.
         clip_writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clips")
         clip_jobs: list[tuple[int, Future]] = []
@@ -395,7 +411,10 @@ class Analyser:
 
                 self._run_pictures(source(), tracker, file_key, enhance, crops, pictures, save_picture,
                                    lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
-                                   cancelled, tick, drift, seen)
+                                   cancelled, tick, drift, seen,
+                                   # the pictures this point is counted from get the close search
+                                   lambda t, at=p.timestamp_s: self.cfg.detect.close_search
+                                   and abs(t - at) <= tol + 1e-6)
                 drifting.update(drift.drifting())
                 self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
                 self._join_pieces(pictures[first:], crops, drifting)
@@ -411,7 +430,7 @@ class Analyser:
                                file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
                                None, False, cancelled, tick, seen=seen)
             self._join_pieces([p for p in pictures if p.role == "scan"], crops, drifting)
-            pictures = self._remove_fixed(pictures, {f: dets for f, (_, dets) in seen.items()}, crops)
+            pictures = self._remove_fixed(pictures, {f: v[1] for f, v in seen.items()}, crops)
             species, vectors, best = self._identify(pictures, crops, index, cancelled,
                                                     lambda f: on_progress(SEARCH_SHARE + (0.98 - SEARCH_SHARE) * f))
             clip_writer.shutdown(wait=True)

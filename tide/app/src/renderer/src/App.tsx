@@ -187,11 +187,16 @@ export default function App() {
           d && {
             ...d,
             frames: d.frames.map((f) =>
-              f.id !== frameId
+              f.id !== frameId && !det.trackId
                 ? f
                 : {
                     ...f,
-                    detections: f.detections.map((x) => (x.id === det.id ? { ...x, ...patch, editedBy: by } : x)),
+                    // One fish is checked once: the back end applies it to every picture of the fish (its track).
+                    detections: f.detections.map((x) =>
+                      x.id === det.id || (det.trackId && x.trackId === det.trackId)
+                        ? { ...x, ...patch, editedBy: by }
+                        : x,
+                    ),
                   },
             ),
           },

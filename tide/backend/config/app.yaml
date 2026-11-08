@@ -29,7 +29,7 @@ detect:
   # Interim detector until a fine-tuned YOLOX exists: Community Fish Detector (RF-DETR, 1 class
   # "fish"). See docs/LICENCES.md for its licence status.
   checkpoint: cfd/cfd-rf-detr-medium-1024-2026.03.24.cp-011.20260706-release.pth
-  conf_threshold: 0.2       # the API returns every box at or above this (API.md, "Who decides what")
+  conf_threshold: 0.15      # the API returns every box at or above this (API.md, "Who decides what")
   nms_iou: 0.5              # merging boxes from the original and the cleared-up picture
   min_box_px: 6             # boxes narrower or shorter than this many pixels are dropped
   # Pictures per second read from each subsample point's ±context_s range (protocol.yaml). The
@@ -42,6 +42,15 @@ detect:
   # "Look closer for small fish" (a survey option): also search the full-resolution picture in a
   # grid of overlapping tiles. Finds more small, distant fish; about grid×grid+1 times slower.
   look_closer_grid: 2
+  # Close search at the moments that are counted (±count.tolerance_s around each point, and photos):
+  # the full-resolution picture is also searched in tiles the detector's own size, in the cleared-up
+  # view when the water is murky. Finds schools of small, distant fish the whole-picture search
+  # misses (52 fish instead of 30 in a busy 4K picture). About 4 s more per counted picture on a
+  # GTX 1650 Ti; the other pictures (tracking only) are searched as before.
+  close_search: true
+  tile_px: 1024             # the detector's input size: fish in a tile aren't shrunk
+  tile_overlap: 0.2
+  contain: 0.85             # a box lying this much inside a surer box is the same fish (dropped)
 
 species:
   model_dir: bioclip-2      # BioCLIP 2 snapshot (open_clip format) inside models.dir
@@ -55,10 +64,10 @@ species:
   # models.dir, in the repo through Git LFS. The list of photos, credits and checksums is
   # config/reference_seed.json. TIDE adds them to the Species Registry on first start.
   seed_dir: reference-seed
-  # true: every fish gets its closest species in the list (the top match), so staff don't have to
-  # name thousands of fish by hand. Similarity is still shown and any fish can be relabelled.
-  # false: only clear matches are named; the rest stay "Unknown" for the Label page.
-  best_match: true
+  # false (default): only clear matches (match_threshold and margin) are named. Those are counted
+  # without anyone checking them; every other fish is "Unknown" and a person picks its species from
+  # the suggestions. true: every fish gets its closest species, sure or not (staff check them all).
+  best_match: false
 
 track:
   enabled: true             # ByteTrack across the sampled pictures of each video

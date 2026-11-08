@@ -91,7 +91,10 @@ def effective_labels(detections: list[dict], labels: list[dict], registry: dict[
         elif tid not in out or not out[tid].human:
             sp = d["model_species_id"]
             named = sp if sp in registry and sp != UNKNOWN_ID else None
-            out[tid] = TrackLabel(registry.get(named, "fish") if named else "fish", named, False)
+            # A clear match (not just the closest species) is sure: it counts without a person.
+            keys = d.keys() if hasattr(d, "keys") else d
+            sure = bool(named) and "unknown_reason" in keys and not d["unknown_reason"]
+            out[tid] = TrackLabel(registry.get(named, "fish") if named else "fish", named, False, sure)
     for lab in labels:
         out[lab["track_id"]] = label_to_track(lab["action"], lab["species"], registry)
     return out

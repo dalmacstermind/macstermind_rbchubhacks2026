@@ -137,13 +137,21 @@ export type Frame = {
   detections: Detection[];
 };
 
-/** A detection needs a person to look at it when the model wasn't sure enough and nobody has checked it yet. */
-export const needsReview = (det: Detection, threshold: number) =>
-  !det.verified && det.speciesId !== NOT_FISH && det.confidence < threshold;
+/** The species model named this fish with a clear match (not just its closest guess): no one needs to check it. */
+export const aiSure = (det: Detection) =>
+  !!det.aiLabel &&
+  det.aiLabel === det.modelSpeciesId &&
+  det.modelSpeciesId !== UNKNOWN &&
+  det.modelSpeciesId !== NOT_FISH &&
+  !det.unknownReason;
 
-/** Counted = it's a fish, and either the model was sure enough or a person confirmed it. */
+/** A detection needs a person when neither model was sure enough and nobody has checked it yet. */
+export const needsReview = (det: Detection, threshold: number) =>
+  !det.verified && det.speciesId !== NOT_FISH && det.confidence < threshold && !aiSure(det);
+
+/** Counted = it's a fish, and the detector was sure enough, the species model was sure, or a person confirmed it. */
 export const isCounted = (det: Detection, threshold: number) =>
-  det.speciesId !== NOT_FISH && (det.verified || det.confidence >= threshold);
+  det.speciesId !== NOT_FISH && (det.verified || det.confidence >= threshold || aiSure(det));
 
 export type SpeciesRow = {
   sp: Species;

@@ -437,10 +437,24 @@ class Database(ProtocolStore):
         r = self.one("SELECT image_path FROM frames WHERE id = ?", frame_id)
         return Path(r["image_path"]) if r else None
 
-    def update_detection(self, detection_id: int, species_id: str, verified: bool, by: str) -> bool:
+    def update_detection(self, detection_id: int, species_id: str, verified: bool, by: str) -> list[int]:
+        """Check or correct one box, and with it every picture of the same fish (its track).
+
+        One fish is checked once, not once per picture. Returns the ids of the boxes changed ([] = not found).
+        """
+        row = self.one("SELECT d.track_id, f.survey_id FROM detections d JOIN frames f ON f.id = d.frame_id "
+                       "WHERE d.id = ?", detection_id)
+        if not row:
+            return []
+        ids = [detection_id]
+        if row["track_id"]:
+            ids = [r["id"] for r in self.all("SELECT d.id FROM detections d JOIN frames f ON f.id = d.frame_id "
+                                             "WHERE f.survey_id = ? AND d.track_id = ?", row["survey_id"],
+                                             row["track_id"])]
         with self.lock, self.conn:
-            return self.conn.execute("UPDATE detections SET species_id = ?, verified = ?, edited_by = ? WHERE id = ?",
-                                     (species_id, int(verified), by if verified else "", detection_id)).rowcount > 0
+            self.conn.executemany("UPDATE detections SET species_id = ?, verified = ?, edited_by = ? WHERE id = ?",
+                                  [(species_id, int(verified), by if verified else "", i) for i in ids])
+        return ids
 
     # ── Blind QC ──
 

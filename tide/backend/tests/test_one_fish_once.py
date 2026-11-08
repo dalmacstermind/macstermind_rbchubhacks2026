@@ -65,3 +65,28 @@ def test_a_few_stray_boxes_dont_make_a_rock_move():
     rock = (1700, 770, 1790, 815)
     searched = {f: [_d(f / 5, rock if f not in (3, 11) else (1720, 778, 1810, 823))] for f in range(20)}
     assert len(find_fixed(searched, 1920, cfg)) == 1
+
+
+def test_a_fast_faint_fish_keeps_its_id_even_without_overlap():
+    """A small fish moves further than its own length between pictures: linked by distance, not overlap."""
+    tr = VideoTracker("v", load_vision_config().track, 5)
+    ids = {tr.update([_d(i / 5, (100 + i * 12, 100, 110 + i * 12, 105), conf=0.2)])[0].track_id for i in range(5)}
+    assert len(ids) == 1
+
+
+def test_a_point_never_counts_more_fish_than_one_picture_shows():
+    """Tracking lost the fish, so 3 tracks cover 2 fish: counted from the busiest picture (2), noted."""
+    from tide.config import load_protocol_config
+    from tide.count import Sighting, TrackLabel, count_point
+    prot, vis = load_protocol_config(), load_vision_config()
+    seen = [Sighting("a", 9.8, 0.9), Sighting("b", 9.8, 0.9),  # two fish together
+            Sighting("c", 10.2, 0.9), Sighting("a", 10.2, 0.9)]  # b came back as c
+    labels = {t: TrackLabel("fish", "cod", False) for t in "abc"}
+    c = count_point("1", 1, 10.0, seen, labels, 0.4, prot, [], vis.clarity)
+    assert c.total_fish == 2 and c.per_species == {"cod": 2} and "same fish" in c.notes
+    apart = [Sighting("a", 9.8, 0.9), Sighting("b", 9.8, 0.9), Sighting("c", 10.2, 0.9), Sighting("d", 10.2, 0.9),
+             Sighting("e", 10.0, 0.9), Sighting("f", 10.0, 0.9)]
+    labels = {t: TrackLabel("fish", None, False) for t in "abcdef"}
+    assert count_point("1", 1, 10.0, apart, labels, 0.4, prot, [], vis.clarity).total_fish == 2
+    one_each = [Sighting("a", 9.8, 0.9), Sighting("b", 9.8, 0.9)]
+    assert count_point("1", 1, 10.0, one_each, labels, 0.4, prot, [], vis.clarity).notes == ""
