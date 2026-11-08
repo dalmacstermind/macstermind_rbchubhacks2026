@@ -11,16 +11,17 @@ at systematic subsample points, identifies supported species, computes **MeanCou
 **species richness**, and fills Coastal Action's spreadsheet. Humans review uncertain items and
 run blind quality control (QC).
 
-Staff use the **TIDE desktop app** (Electron + React, built on the FinCount code base in
-`fincount/`). They add **videos, images, folders, or ZIP files containing images and videos
+Staff use the **TIDE desktop app** (Electron + React, in `tide/`; it started from the FinCount
+code base). They add **videos, images, folders, or ZIP files containing images and videos
 together** by drag and drop or a file picker. Files are read where they are on this computer;
 nothing is uploaded anywhere.
 
-**Naming:** the product is called **TIDE** in every user-facing place (window title, sidebar,
-installer, exports, notifications). The code still uses the FinCount names (`fincount/`,
-`fincount_api`, `FINCOUNT_*` environment variables, `X-FinCount-Token`, `%APPDATA%\FinCount\`)
-until a dedicated rename task changes them; do not rename these piecemeal. The old working name
-"AquaVision AI" is retired.
+**Naming:** the product and the code are called **TIDE**: the `tide/` folder, the `tide_api`
+(API) and `tide` (pipeline) Python packages, `TIDE_*` environment variables, `X-TIDE-Token` /
+`X-TIDE-User` headers, the `%APPDATA%\TIDE\` data folder and its `tide.db`. The old names
+(FinCount, `fincount_api`, AquaVision AI, `aquavision`) are retired; don't reintroduce them. On first
+start, TIDE moves an old `%APPDATA%\FinCount\` data folder, `fincount.db` and `fincount.*` browser
+settings to the new names, so earlier surveys keep working.
 
 The project does not invent a new method. When in doubt, do what the protocol says.
 
@@ -64,10 +65,10 @@ The project does not invent a new method. When in doubt, do what the protocol sa
 ## Architecture
 
 ```
-TIDE desktop app (Electron)                     fincount-api.exe (FastAPI, PyInstaller)
+TIDE desktop app (Electron)                     tide-api.exe (FastAPI, PyInstaller)
  ┌───────────────────────────┐  HTTP 127.0.0.1  ┌──────────────────────────────────────┐
- │ main: starts/stops back    │  + random token  │ fincount_api/  routes, jobs, SQLite   │
- │ end, file pickers, saving  │ ───────────────▶ │ aquavision/    ingest → protocol →    │
+ │ main: starts/stops back    │  + random token  │ tide_api/  routes, jobs, SQLite   │
+ │ end, file pickers, saving  │ ───────────────▶ │ tide/    ingest → protocol →    │
  │ renderer: React screens    │                  │   frames → detect → species → track → │
  └───────────────────────────┘                  │   count → clarity → QC → export       │
                                                  └──────────────────────────────────────┘
@@ -76,8 +77,8 @@ TIDE desktop app (Electron)                     fincount-api.exe (FastAPI, PyIns
 - The **renderer** never touches files or models. It calls the backend only through
   `src/renderer/src/api.ts`, and Electron only through `window.desktop` (pickers, saving files,
   taskbar progress).
-- The **backend** is a thin layer (`fincount_api/`) over the `aquavision` Python package. Pipeline
-  and protocol logic lives in `aquavision/`, not in route handlers.
+- The **backend** is a thin layer (`tide_api/`) over the `tide` Python package. Pipeline
+  and protocol logic lives in `tide/`, not in route handlers.
 - **No protocol calculations in the renderer.** Counts, MeanCount, richness, clarity summaries and
   QC differences come from the backend; screens only display them.
 - Long processing runs as a **background job** in the backend (a simple in-process worker queue;
@@ -90,7 +91,7 @@ TIDE desktop app (Electron)                     fincount-api.exe (FastAPI, PyIns
 
 Coastal Action staff cannot be expected to run Docker or terminal commands. The product ships as
 one **Windows installer** built by electron-builder, containing the Electron app and the backend
-(`fincount-api.exe`, built with PyInstaller). Staff run it once and open TIDE from the Start menu
+(`tide-api.exe`, built with PyInstaller). Staff run it once and open TIDE from the Start menu
 or desktop. No Python, Node or terminal on their machine. Do not add Docker files.
 
 - **Per-user install, no admin rights, works with no internet.**
@@ -104,7 +105,7 @@ or desktop. No Python, Node or terminal on their machine. Do not add Docker file
   ~2 GB limit, so check the build early; if it is exceeded, ship the backend and `models/` as a
   separate offline folder that the installer copies, rather than inside one `.exe`.
 - **Model weights** ship in the package under `models/`; nothing downloads at install or runtime.
-- **Data folder outside the app folder:** `%APPDATA%\FinCount\` (extracted ZIPs, context clips,
+- **Data folder outside the app folder:** `%APPDATA%\TIDE\` (extracted ZIPs, context clips,
   SQLite, exports), so reinstalling or updating never touches results.
 - Built by GitHub Actions ("Build Windows installer") or on a Windows PC (see Commands).
 - Test every installer on a clean Windows machine with the network disabled before calling it done.
@@ -113,7 +114,7 @@ or desktop. No Python, Node or terminal on their machine. Do not add Docker file
 ### Layout (update this section if it changes)
 
 ```
-fincount/
+tide/
   API.md                         app ↔ backend contract (change both sides together)
   app/                           Electron + React + Vite (TypeScript)
     src/main/index.ts            starts/stops backend, pickers, save dialogs
@@ -136,8 +137,8 @@ fincount/
                                  (today: Report shows the protocol results; Label is the Label page)
     test/                        Vitest
   backend/
-    fincount_api/                main.py (routes), schemas.py, db.py, jobs (pipeline.py today)
-    aquavision/
+    tide_api/                main.py (routes), schemas.py, db.py, jobs (pipeline.py today)
+    tide/
       config.py                  load and validate config/*.yaml into config objects
       ingest.py                  classify files, join chapter files, read Transect/STAT from paths
       archive.py                 safe ZIP extraction (see Adding media)
@@ -172,16 +173,16 @@ Components move from `views/` into `components/` as screens are reworked.
 
 ## UI reference
 
-`UI_Wireframes.pdf` is the screen reference. Build on the FinCount shell (sidebar, who's working,
-light/dark theme, shortcuts sheet, export check) and add the missing wireframe screens on top.
+`UI_Wireframes.pdf` is the screen reference. Build on the existing app shell (sidebar, who's
+working, light/dark theme, shortcuts sheet, export check) and add the missing wireframe screens on top.
 
-- Where FinCount and the wireframe differ, **the wireframe wins for protocol features**: analysis
+- Where the app and the wireframe differ, **the wireframe wins for protocol features**: analysis
   window confirm, subsample point timeline and panel, video player with ±0.5 s loop, label gallery
   and picker, QC on points with the context clip, image grid, benchmark.
-- **FinCount wins for look and feel:** colours, layout details, and fonts **Sora** (display) and
+- **The current app wins for look and feel:** colours, layout details, and fonts **Sora** (display) and
   **Manrope** (body), bundled with `@fontsource`. Ignore the wireframe's mention of Inter.
-- The product name shown everywhere is **TIDE** (the wireframes say AquaVision AI).
-- **Remove from FinCount:** invasive/unusual alerts and stat tiles, MaxN as the headline count,
+- The product name shown everywhere is **TIDE** (the wireframes still say AquaVision AI, the retired name).
+- **Remove from the app:** invasive/unusual alerts and stat tiles, MaxN as the headline count,
   "Unidentified fish" (use "Unknown/Unable to ID due to visibility"), and protocol settings kept
   only in `localStorage`.
 
@@ -263,7 +264,7 @@ light/dark theme, shortcuts sheet, export check) and add the missing wireframe s
   changes are saved to `<data folder>/protocol.yaml`, which wins when present, so updates never
   overwrite them. Every save/reset is recorded with who and when (`protocol_changes` table). Values
   not on the screen (sediment-check calibration, scan rates, visibility categories, the ±1 s
-  tolerance limit) are edited in the YAML only. Code: `fincount_api/settings.py`.
+  tolerance limit) are edited in the YAML only. Code: `tide_api/settings.py`.
 - Each survey stores a snapshot of the protocol values it was processed with
   (`surveys.protocol_json`). Everything about that survey (window proposal and confirmation, point
   counting, results, QC) uses its snapshot via `settings.survey_protocol()`, never the current
@@ -293,7 +294,7 @@ Counting logic:
 A camera cannot measure turbidity (NTU); that needs a turbidity meter. The app measures a
 **clarity index**: a 0–100 estimate of how clear the water looks in the video.
 
-- **Name:** always "Clarity index" in code, UI and exports (not "Water clarity", which FinCount
+- **Name:** always "Clarity index" in code, UI and exports (not "Water clarity", which the app
   uses today). Never call it turbidity or show NTU unless it has been calibrated against real
   turbidity-meter or Secchi readings (roadmap).
 - **Computed on the same frames used for detection** (no second pass over the video, no extra AI
@@ -343,9 +344,9 @@ Rules:
 - **History import (P2):** past completed spreadsheets can be imported so species counts start with
   real history; clarity only exists where the video was processed. Imported points are marked as
   imported.
-- Chart library: **Recharts** (MIT), already used by FinCount and bundled by Vite (offline).
+- Chart library: **Recharts** (MIT), already used by the app and bundled by Vite (offline).
 - Data comes from `GET /trends`; the chart component does no calculations of its own.
-- FinCount's current Trends screen differs and must change: one point per **video** (not per
+- The current Trends screen differs and must change: one point per **video** (not per
   survey), filters by **Transect/STAT** (not site), "Reviewed only" **on** by default, a
   "Group by survey date" toggle, the second chart fixed to species found (no invasive metric), and
   the video **median** clarity index (not the mean).
@@ -377,7 +378,7 @@ due to visibility** or **Potential Novel Sighting**, in videos and images.
 | Not a fish / not an organism | Removes it from all counts (for example algae or bubbles) |
 | Invertebrate | Moves it from fish to the invertebrate count (with type if known) |
 
-The Label page replaces FinCount's one-picture-at-a-time "Check the fish" species list.
+The Label page replaces the original one-picture-at-a-time "Check the fish" species list.
 
 ### Label picker (`LabelPicker.tsx`)
 
@@ -443,12 +444,12 @@ Behaviour:
 - **Export labelled crops (optional):** a local export of labelled crops in a standard folder
   structure, for future fine-tuning. Stays on the local machine like all other media.
 
-## API (fincount/backend/fincount_api/main.py)
+## API (tide/backend/tide_api/main.py)
 
-`fincount/API.md` is the contract between the app and the backend: change both sides in the same
+`tide/API.md` is the contract between the app and the backend: change both sides in the same
 commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/renderer/src/api.ts`).
 
-- Address `http://127.0.0.1:<port>`; every request sends `X-FinCount-Token` (or `?token=` for
+- Address `http://127.0.0.1:<port>`; every request sends `X-TIDE-Token` (or `?token=` for
   `<img>`/`<video>` URLs). No `/api` prefix.
 - **JSON is camelCase.** Python stays snake_case; Pydantic converts.
 - Errors are `{"detail": "plain-English message"}`, shown to staff as-is.
@@ -463,7 +464,7 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | Keep | `GET /surveys` · `GET/PATCH/DELETE /surveys/{id}` | Surveys (= batches) |
 | New | `GET /surveys/{id}/results` | Videos with per-point counts, MeanCount, richness; image counts |
 | Done (US-2.1) | `GET /surveys/{id}/videos` | Each video's proposed window, flags (`tooShort`, `settled`) and confirmed window |
-| Done (US-2.1) | `PATCH /videos/{id}` | Confirm analysis window (`windowStartS`, `windowEndS`); person from the `X-FinCount-User` header (URL-encoded, must be on the people list). Later: recording date, visibility |
+| Done (US-2.1) | `PATCH /videos/{id}` | Confirm analysis window (`windowStartS`, `windowEndS`); person from the `X-TIDE-User` header (URL-encoded, must be on the people list). Later: recording date, visibility |
 | New | `PATCH /points/{id}` | Review edit; keeps the original AI value |
 | New | `GET /media/{fileId}` | Stream a video or image (HTTP range requests so the player can seek) |
 | New | `GET /points/{id}/clip` | The saved ±context clip for a point |
@@ -471,14 +472,14 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | New | `POST /labels` · `DELETE /labels/{id}` | Apply a label to one or more tracks (returns updated counts); undo |
 | Change | `GET /surveys/{id}/qc` · `POST /surveys/{id}/qc` | Blind QC on **points** (not pictures); returns absolute and % difference. Done: sample size, max difference and target come from the survey's protocol snapshot (`percent` is optional) |
 | New | `GET /trends` | Per-video summaries; query: `transect`, `stat`, `from`, `to`, `reviewedOnly`, `groupBySurvey` |
-| Done | `GET /settings/protocol` · `PUT /settings/protocol` · `DELETE /settings/protocol` | Read, save (`?check=true`: validate only, returns points per window or per-field errors), reset to defaults. Save/reset need `X-FinCount-User` (on the people list). Applies to new processing only |
+| Done | `GET /settings/protocol` · `PUT /settings/protocol` · `DELETE /settings/protocol` | Read, save (`?check=true`: validate only, returns points per window or per-field errors), reset to defaults. Save/reset need `X-TIDE-User` (on the people list). Applies to new processing only |
 | New | `POST /benchmark` · `GET /benchmark` | Run and read the hardware benchmark |
 | New (optional) | `GET /surveys/{id}/labelled-crops.zip` | Local export of labelled crops |
 | Retire | `GET /frames/{id}/image` · `PATCH /detections/{id}` | Replaced by media, points and labels |
 
 **Export:** the app writes the `.xlsx` with ExcelJS (`exportXlsx.ts`), using only rows from
 `GET /surveys/{id}/results` (no calculations in the renderer). Sheets: video sheet (Coastal Action
-template columns, then clarity columns), **Images** (renamed from FinCount's "Pictures"), and
+template columns, then clarity columns), **Images** (renamed from the old "Pictures" sheet), and
 **Read me** (open items; file marked "Draft" when any remain).
 
 ### Module interfaces (Python)
@@ -605,7 +606,7 @@ class FishLabel:
 | Species ID | BioCLIP 2.5 Huge on PyTorch CUDA | BioCLIP 2, small custom classifier (PyTorch CPU) | MIT |
 | Tracking | ByteTrack | box-overlap matching | MIT |
 
-FinCount's `README.md` ("run the model with onnxruntime, not PyTorch") and `pipeline.py`
+The `README.md` ("run the model with onnxruntime, not PyTorch") and `pipeline.py`
 ("decode YOLO boxes … for YOLOv8/11") are out of date: the runtime is PyTorch CUDA and the
 detector is YOLOX. Update them when the detector is wired in.
 
@@ -638,28 +639,28 @@ detector is YOLOX. Update them when the detector is wired in.
 
 ## Commands
 
-The venv must be at `fincount/backend/.venv` (the app looks for it there). Python 3.11, Node 22+.
+The venv must be at `tide/backend/.venv` (the app looks for it there). Python 3.11, Node 22+.
 
 ```bash
 # Backend (once). Windows: py -m venv .venv ; .venv\Scripts\Activate.ps1
-cd fincount/backend
+cd tide/backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 pytest
-uvicorn fincount_api.main:app --port 8765 --reload    # optional: the app reuses it
+uvicorn tide_api.main:app --port 8765 --reload    # optional: the app reuses it
 
 # App
-cd fincount/app
+cd tide/app
 npm install
 npm run dev            # opens TIDE and starts the backend from backend/.venv
 npm test               # Vitest
 npm run typecheck
 
 # Benchmark
-python -m aquavision.benchmark --video <path to a local video>
+python -m tide.benchmark --video <path to a local video>
 
 # Windows installer (on Windows, or GitHub Actions "Build Windows installer")
-cd fincount/backend && pyinstaller fincount-api.spec --noconfirm
+cd tide/backend && pyinstaller tide-api.spec --noconfirm
 cd ../app && npm run dist:win
 ```
 
@@ -676,7 +677,7 @@ machine with the network disabled.
 
 - Python 3.11, type hints, dataclasses for data passed between modules.
 - Read all settings from `config/*.yaml`; pass config objects in, don't read globals.
-- Route handlers stay thin: validate input, call `aquavision`, return JSON.
+- Route handlers stay thin: validate input, call `tide`, return JSON.
 - Each module must be testable alone. Generate media fixtures at test time (for example a short
   synthetic video written with OpenCV into `tmp_path`); never commit media.
 - Models load once at startup and are cached; never reload per frame or per request.
