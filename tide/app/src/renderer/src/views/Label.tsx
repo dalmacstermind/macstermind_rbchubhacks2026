@@ -72,11 +72,22 @@ export function LabelView({
       setMessage(`Labelled ${plural(drawn ? 1 : targets.length, "fish", "fish")}. ${r.remaining} still to label.`);
       if (!open) setSelected(new Set());
       setDrawn(null);
+      setAsReference(false); // a person decides for each label, so poor crops aren't added by accident
       load();
       onChanged();
     } catch (e) {
       setMessage((e as Error).message);
     }
+  };
+
+  // Ticks are cleared with every filter change, so a fish the filter hides can't be labelled unseen.
+  const changeShow = (value: Show) => {
+    setShow(value);
+    setSelected(new Set());
+  };
+  const changeFile = (value: string) => {
+    setFile(value);
+    setSelected(new Set());
   };
 
   const undo = async (labelId: string) => {
@@ -152,12 +163,12 @@ export function LabelView({
       <div className="grid grid-cols-1 gap-6 px-10 py-6 lg:grid-cols-[1fr_380px]">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            <select className="input w-auto py-1.5" value={show} onChange={(e) => setShow(e.target.value as Show)}>
+            <select className="input w-auto py-1.5" value={show} onChange={(e) => changeShow(e.target.value as Show)}>
               <option value="todo">Still to label</option>
               <option value="labelled">Labelled</option>
               <option value="all">All</option>
             </select>
-            <select className="input w-auto py-1.5" value={file} onChange={(e) => setFile(e.target.value)}>
+            <select className="input w-auto py-1.5" value={file} onChange={(e) => changeFile(e.target.value)}>
               <option value="">All videos and images</option>
               {files.map((f) => (
                 <option key={f} value={f}>
