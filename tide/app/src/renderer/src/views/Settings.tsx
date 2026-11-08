@@ -1,8 +1,9 @@
-// Settings: protocol settings (window, points, blind QC), people, and disk space.
+// Settings: protocol settings (window, points, blind QC), people, disk space and the accuracy check.
 // Per-survey choices (certainty, sampling, clear-up, specks) are made on the Start a new survey page.
 import { useEffect, useState, type MutableRefObject, type ReactNode } from "react";
 import type { Person, Storage } from "../../../shared/api";
 import { api } from "../api";
+import { EvaluationPanel } from "../components/EvaluationPanel";
 import { ProtocolSettingsPanel } from "../components/ProtocolSettingsPanel";
 import { UnsavedSettingsDialog } from "../components/UnsavedSettingsDialog";
 import { Header, btnLink, formatBytes, useConfirm } from "../ui";
@@ -71,6 +72,9 @@ export function SettingsView({
       <div className="grid grid-cols-1 items-start gap-6 px-10 py-8 lg:grid-cols-2">
         <div className="space-y-6">
           <StorageSection storage={storage} used={used} low={low} />
+          <Section title="Accuracy check">
+            <EvaluationPanel />
+          </Section>
           <Section title="People">
             {people.length === 0 ? (
               <p className="text-sm text-muted-foreground">No names yet.</p>

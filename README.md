@@ -51,7 +51,7 @@ scan, and a clarity index. Staff label the fish the AI couldn't name on the **La
 
 **Accuracy is not measured yet:** there are no hand-counted results to compare with. To measure it,
 compare the AI with hand counts of the same points (Coastal Action's past spreadsheets, exported to a
-CSV with columns `video, point, total_fish`): in the app, **Report → Compare with hand counts…**, or
+CSV with columns `video, point, total_fish`): in the app, **Tools → Settings → Accuracy check → Compare with hand counts…**, or
 
 ```sh
 python -m tide.evaluate --results results.json --human hand_counts.csv
