@@ -51,7 +51,7 @@ class FakeEncoder:
 
 def test_vision_config_defaults():
     cfg = load_vision_config()
-    assert cfg.detect.conf_threshold == 0.2
+    assert cfg.detect.conf_threshold == 0.15 and cfg.detect.close_search and not cfg.species.best_match
     assert cfg.species.novelty_threshold <= cfg.species.match_threshold
     assert cfg.detect.checkpoint.parent.name == "cfd" and cfg.species.model_dir.name == "bioclip-2"
     assert abs(sum(cfg.clarity.weights.values()) - 1.0) < 1e-6
@@ -95,8 +95,8 @@ def test_species_match_rules():
 
 
 def test_best_match_names_the_closest_species_and_says_why():
-    cfg = _cfg()
-    assert cfg.best_match  # app.yaml default: staff don't name thousands of fish by hand
+    assert not _cfg().best_match  # default: only clear matches are named (the rest are Unknown for a person)
+    cfg = replace(_cfg(), best_match=True)
     a, b = np.eye(4, dtype=np.float32)[0], np.eye(4, dtype=np.float32)[1]
     index = ReferenceIndex.build([("cod", a), ("cunner", b)])
     assert match(a[None], index, cfg).reason == ""  # a clear match needs no explanation

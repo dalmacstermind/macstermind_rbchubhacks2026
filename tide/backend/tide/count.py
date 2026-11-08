@@ -6,13 +6,16 @@ Pure functions: the caller gathers sightings and labels from the database, these
   more than ±count.max_tolerance_s). Tracking across the point's context clip means one fish is
   counted ONCE, however many pictures it appears in.
 - Fish seen only outside the tolerance window are not counted; they become a note.
-- Conservative counting: a fish within the tolerance window counts only if the detector was sure
-  enough (the survey's certainty threshold) or a person confirmed it. Otherwise the point needs
-  review and the fish is noted, not counted.
+- A fish within the tolerance window counts if the detector was sure enough (the survey's certainty
+  threshold), the species model was sure of its species (a clear match, species.py), or a person
+  confirmed it. Otherwise the point needs review and the fish is noted, not counted.
 - MeanCount = sum of per-point fish counts ÷ number of points (zero-count points included).
 - Species richness = distinct species seen anywhere in the analysis window (points + the sparse
   full-window scan), counting only sure or confirmed fish.
 - Fish and invertebrates are counted separately; unidentified fish go to `unknown`.
+- No fish is counted twice: when tracking loses small, fast fish (a school) and the same fish turns
+  up as several tracks, a point never counts more fish than are seen together in its busiest
+  picture within the tolerance window; the count is then taken from that picture.
 - Objects that never move during the context clip (pole markings, rocks, sometimes a resting fish)
   are not counted automatically: the point needs review (settings in app.yaml, `stationary`).
 """
@@ -45,6 +48,7 @@ class TrackLabel:
     kind: str  # "fish" | "invertebrate" | "not_organism"
     species: str | None  # registry species id for fish (or invertebrate species); None = unknown
     human: bool  # a person labelled or confirmed it
+    sure: bool = False  # the species model named it with a clear match: counted without a person
 
 
 @dataclass
@@ -104,7 +108,7 @@ class _Tally:
 
 
 def _is_sure(sightings: list[Sighting], label: TrackLabel, threshold: float) -> bool:
-    return label.human or any(s.conf >= threshold for s in sightings)
+    return label.human or label.sure or any(s.conf >= threshold for s in sightings)
 
 
 def is_stationary(seen: list[Sighting], cfg: StationaryConfig | None) -> bool:
@@ -138,6 +142,8 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
     for s in sightings:
         by_track.setdefault(s.track_id, []).append(s)
     tally, uncertain, outside, still, drifting, murky = _Tally(), 0, 0, 0, 0, 0
+    counted: dict[str, TrackLabel] = {}  # track -> label, for the busiest-picture check
+    unsure: set[str] = set()
     for tid, seen in by_track.items():
         label = labels.get(tid, TrackLabel("fish", None, False))
         if label.kind == "not_organism":
@@ -153,8 +159,29 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
             murky += 1
         elif _is_sure(near, label, threshold):
             tally.add(label)
+            counted[tid] = label
         else:
             uncertain += 1
+            unsure.add(tid)
+
+    # Never more fish than are seen together in one picture: more tracks than that are the same fish
+    # seen as several tracks (tracking lost it), so count from the busiest picture instead.
+    near_at: dict[float, set[str]] = {}
+    for s in sightings:
+        if abs(s.t_s - timestamp_s) <= tol + _EPS:
+            near_at.setdefault(round(s.t_s, 4), set()).add(s.track_id)
+    merged = 0
+    if near_at:
+        busiest = max(near_at.values(), key=lambda ids: len(ids & counted.keys()))
+        if len(counted) > len(busiest & counted.keys()):
+            merged = len(counted) - len(busiest & counted.keys())
+            tally = _Tally()
+            for tid in busiest & counted.keys():
+                tally.add(counted[tid])
+        most_unsure = max(len(ids & unsure) for ids in near_at.values())
+        if uncertain > most_unsure:
+            merged += uncertain - most_unsure
+            uncertain = most_unsure
 
     clarity = round(statistics.median(clarity_values), 1) if clarity_values else None
     suggestion = suggested_visibility(clarity, clarity_cfg, protocol.visibility_categories)
@@ -165,6 +192,9 @@ def count_point(video_id: str, point_no: int, timestamp_s: float, sightings: lis
     if uncertain:
         notes.append(f"{uncertain} possible fish below the certainty threshold need checking (not counted)")
         review = True
+    if merged:
+        notes.append(f"{merged} more track{'s' if merged != 1 else ''} looked like the same fish seen again "
+                     "(counted once, from the busiest picture)")
     if drifting:
         notes.append(f"{drifting} moved exactly like the water (debris or weed?) need checking (not counted)")
         review = True

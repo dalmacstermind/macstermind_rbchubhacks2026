@@ -94,11 +94,14 @@ def trends(db: Database, filters: TrendFilters, group_by_survey: bool) -> Trends
 def unknowns(db: Database, survey_id: int) -> Unknowns:
     """One card per tracked organism the AI couldn't name (or a person drew), labelled or not.
 
-    Richness-scan organisms the detector was never sure about are left out: they can't change any
-    count or the species richness, and would bury the fish that matter.
+    Left out, because they can't change any count and would bury the fish that matter:
+    richness-scan organisms the detector was never sure about, and organisms at a point seen only
+    outside its counting window (±count.tolerance_s).
     """
     import json
     rows = db.survey_detections(survey_id)
+    tol = survey_protocol(db, survey_id).count.effective_tolerance_s
+    point_at = {(v["id"], p["point_no"]): p["timestamp_s"] for v in db.video_rows(survey_id) for p in db.points(v["id"])}
     active = {lab["track_id"]: lab for lab in db.active_labels(survey_id)}
     by_track: dict[str, list] = defaultdict(list)
     for r in rows:
@@ -109,8 +112,14 @@ def unknowns(db: Database, survey_id: int) -> Unknowns:
     threshold = found[0].threshold if found else 0.5
     fish, remaining = [], defaultdict(int)
     for tid, dets in by_track.items():
-        if all(d["role"] == "scan" for d in dets) and max(d["confidence"] for d in dets) < threshold                 and not any(d["verified"] for d in dets) and tid not in active:
+        checked = any(d["verified"] for d in dets) or tid in active
+        if all(d["role"] == "scan" for d in dets) and max(d["confidence"] for d in dets) < threshold \
+                and not checked:
             continue
+        if not checked and all(d["role"] == "point" for d in dets) and point_at and not any(
+                abs((d["t_s"] or 0) - point_at.get((d["video_id"], d["point_no"]), -1e9)) <= tol + 1e-6
+                for d in dets):
+            continue  # seen only outside the counting window: never counted
         dets.sort(key=lambda d: (d["t_s"] or 0, d["id"]))
         best = max(dets, key=lambda d: d["confidence"])
         lab = active.get(tid)

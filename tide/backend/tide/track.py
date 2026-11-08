@@ -72,13 +72,21 @@ class VideoTracker:
         return detections
 
     def _solo_id(self, d: Detection, taken: set[str]) -> str:
-        """Same id as the overlapping unconfirmed detection of a recent picture, else a new one."""
-        best, best_iou = None, self.cfg.match_iou
+        """Same id as the nearest unconfirmed detection of a recent picture, else a new one.
+
+        Near = overlapping, or its centre within track.merge_distance box sizes: small fish in a school
+        move further than their own length between two pictures, so overlap alone loses them.
+        """
+        best, best_d = None, None
         for sid, (box, _, _) in self._solos.items():
-            if sid not in taken:
-                iou = box_iou(box, d.box)
-                if iou >= best_iou:
-                    best, best_iou = sid, iou
+            if sid in taken:
+                continue
+            size = max(box[2] - box[0], box[3] - box[1], d.box[2] - d.box[0], d.box[3] - d.box[1], 1.0)
+            dist = float(np.hypot((box[0] + box[2] - d.box[0] - d.box[2]) / 2,
+                                  (box[1] + box[3] - d.box[1] - d.box[3]) / 2)) / size
+            if box_iou(box, d.box) >= self.cfg.match_iou or dist <= self.cfg.merge_distance:
+                if best_d is None or dist < best_d:
+                    best, best_d = sid, dist
         if best is None:
             self._next_solo += 1
             best = f"{self.video_key}-s{self._next_solo}"

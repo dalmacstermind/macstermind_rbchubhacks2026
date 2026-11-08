@@ -4,6 +4,7 @@ import type { Person } from "../../../shared/api";
 import {
   NOT_FISH,
   UNKNOWN,
+  aiSure,
   needsReview,
   type Detection,
   type Frame,
@@ -412,8 +413,10 @@ export function ReviewView({
                 {det.speciesId !== NOT_FISH && !det.verified && !needsReview(det, threshold) && (
                   <p className="mt-4">
                     <Chip tone="done">
-                      Counted automatically: TIDE was at least {Math.round(threshold * 100)}% sure. Pick another
-                      answer only if it's wrong.
+                      {aiSure(det)
+                        ? `Counted automatically: TIDE is sure this is ${/^[aeiou]/i.test(name(det.speciesId)) ? "an" : "a"} ${name(det.speciesId)}.`
+                        : `Counted automatically: TIDE was at least ${Math.round(threshold * 100)}% sure.`}{" "}
+                      Pick another answer only if it's wrong.
                     </Chip>
                   </p>
                 )}

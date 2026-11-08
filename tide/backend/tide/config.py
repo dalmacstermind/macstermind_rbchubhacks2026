@@ -302,6 +302,11 @@ class DetectConfig:
     context_fps: float  # pictures per second read from each point's ±context_s range
     speck_max_area_pct: float  # "ignore tiny specks": boxes under this % of the picture are dropped
     look_closer_grid: int  # "look closer for small fish": tiles per side on the full-resolution picture
+    # Close search at the moments that are counted: the full-resolution picture in detector-sized tiles.
+    close_search: bool = True
+    tile_px: int = 1024  # tile size (the detector's own input size: small fish aren't shrunk)
+    tile_overlap: float = 0.2
+    contain: float = 0.85  # a box this much inside a surer box is the same fish (dropped)
 
 
 @dataclass(frozen=True)
@@ -314,9 +319,9 @@ class SpeciesConfig:
     crop_padding: float
     min_crop_px: float
     seed_dir: Path  # default reference pictures (downloaded by tide.fetch_reference_images), inside models.dir
-    # Name every fish after its closest species in the list (its top match), instead of "Unknown" when
-    # no species is clearly ahead. Staff can still relabel any fish.
-    best_match: bool = True
+    # Name every fish after its closest species in the list, sure or not. Off by default: only clear
+    # matches are named (and counted without a person checking); the rest are "Unknown".
+    best_match: bool = False
 
 
 @dataclass(frozen=True)
@@ -470,6 +475,10 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             context_fps=_num(det, "detect.context_fps", path, minimum=0, strict=True),
             speck_max_area_pct=_num(det, "detect.speck_max_area_pct", path, minimum=0),
             look_closer_grid=int(_num(det, "detect.look_closer_grid", path, minimum=1)),
+            close_search=_bool({"close_search": True, **det}, "detect.close_search", path),
+            tile_px=int(_num({"tile_px": 1024, **det}, "detect.tile_px", path, minimum=256)),
+            tile_overlap=_num({"tile_overlap": 0.2, **det}, "detect.tile_overlap", path, minimum=0),
+            contain=_num({"contain": 0.85, **det}, "detect.contain", path, minimum=0, strict=True),
         ),
         species=SpeciesConfig(
             model_dir=models_dir / _text(sp, "species.model_dir", path),
@@ -480,7 +489,7 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             crop_padding=_num(sp, "species.crop_padding", path, minimum=0),
             min_crop_px=_num(sp, "species.min_crop_px", path, minimum=1),
             seed_dir=models_dir / _text(sp, "species.seed_dir", path),
-            best_match=_bool({"best_match": True, **sp}, "species.best_match", path),
+            best_match=_bool({"best_match": False, **sp}, "species.best_match", path),
         ),
         track=TrackConfig(
             enabled=enabled,
