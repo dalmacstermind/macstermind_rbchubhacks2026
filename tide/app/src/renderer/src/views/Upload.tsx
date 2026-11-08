@@ -4,7 +4,20 @@ import type { AnalysisRequest, PickedFile, Sampling, SkippedFile } from "../../.
 import type { OpenItem } from "../../../shared/survey";
 import { api } from "../api";
 import type { SurveyOverview } from "../overview";
-import { Chip, Disclosure, Field, Header, btnGhost, btnLink, btnPrimary, formatBytes, plural, useConfirm } from "../ui";
+import {
+  Chip,
+  Disclosure,
+  FUTURE_DATE_MESSAGE,
+  Field,
+  Header,
+  btnGhost,
+  btnLink,
+  btnPrimary,
+  formatBytes,
+  plural,
+  today,
+  useConfirm,
+} from "../ui";
 
 export type SurveyForm = Omit<AnalysisRequest, "files" | "person">;
 export type OpenTarget = "report" | Exclude<OpenItem["key"], "window" | "count">;
@@ -35,6 +48,7 @@ export function UploadView({
   const [drag, setDrag] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [skipped, setSkipped] = useState<SkippedFile[]>([]);
+  const [triedToCount, setTriedToCount] = useState(false); // the red messages wait until someone tries
   const [confirmNode, confirm] = useConfirm();
   const set = <K extends keyof SurveyForm>(k: K, v: SurveyForm[K]) => setForm({ ...form, [k]: v });
 
@@ -45,6 +59,14 @@ export function UploadView({
     setFiles([...files, ...r.files.filter((f) => !files.some((x) => x.path === f.path))]);
   };
   const total = files.reduce((a, f) => a + f.size, 0);
+  // Every survey needs a site and a date: Trends places results by date and staff find surveys by site.
+  const siteMissing = !form.site.trim();
+  const dateMissing = !form.surveyDate;
+  const dateInFuture = form.surveyDate > today(); // the calendar blocks these, but a date can still be typed
+  const countTheFish = () => {
+    setTriedToCount(true);
+    if (!siteMissing && !dateMissing && !dateInFuture) onStart();
+  };
   // One list of earlier surveys: the ones that still need work come first, then the finished ones.
   const withWork = (overview ?? []).filter((o) => o.open.length > 0);
   const sorted = [...withWork, ...(overview ?? []).filter((o) => o.open.length === 0)];
@@ -187,15 +209,21 @@ export function UploadView({
               placeholder="Where was this filmed?"
               onChange={(e) => set("site", e.target.value)}
               className="input"
+              aria-invalid={triedToCount && siteMissing}
             />
+            {triedToCount && siteMissing && <RequiredMessage text="Enter Site name" />}
           </Field>
           <Field label="Date filmed" hint="Used to show changes over time in Trends.">
             <input
               type="date"
               value={form.surveyDate}
+              max={today()}
               onChange={(e) => set("surveyDate", e.target.value)}
               className="input"
+              aria-invalid={(triedToCount && dateMissing) || dateInFuture}
             />
+            {triedToCount && dateMissing && <RequiredMessage text="Enter filmed date" />}
+            {dateInFuture && <RequiredMessage text={FUTURE_DATE_MESSAGE} />}
           </Field>
           <Disclosure label="More options">
             <div className="space-y-5">
@@ -272,13 +300,21 @@ export function UploadView({
               </label>
             </div>
           </Disclosure>
-          <button disabled={!files.length} onClick={onStart} className={`${btnPrimary} w-full py-3`}>
+          <button disabled={!files.length} onClick={countTheFish} className={`${btnPrimary} w-full py-3`}>
             Count the fish →
           </button>
           {!files.length && <p className="text-center text-xs text-muted-foreground">Add some footage first</p>}
         </div>
       </div>
     </>
+  );
+}
+
+function RequiredMessage({ text }: { text: string }) {
+  return (
+    <p role="alert" className="mt-1.5 text-sm text-destructive">
+      {text}
+    </p>
   );
 }
 

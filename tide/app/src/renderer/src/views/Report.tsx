@@ -23,6 +23,7 @@ import {
   Certainty,
   Chip,
   Disclosure,
+  FUTURE_DATE_MESSAGE,
   Field,
   Header,
   Modal,
@@ -32,6 +33,7 @@ import {
   btnLink,
   btnPrimary,
   plural,
+  today,
 } from "../ui";
 
 export type ReviewMode = "all" | "review" | "label";
@@ -439,6 +441,7 @@ export function EditSurvey({ data, onClose, onSaved }: { data: SurveyData; onClo
   const [date, setDate] = useState(data.survey.surveyDate);
   const [error, setError] = useState("");
   const save = async () => {
+    if (date > today()) return setError(FUTURE_DATE_MESSAGE);
     try {
       await api.surveys.update(data.survey.id, { site, surveyDate: date });
       onSaved();
@@ -467,7 +470,13 @@ export function EditSurvey({ data, onClose, onSaved }: { data: SurveyData; onClo
           <input className="input" value={site} onChange={(e) => setSite(e.target.value)} />
         </Field>
         <Field label="Date filmed">
-          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          <input
+            type="date"
+            className="input"
+            value={date}
+            max={today()}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
