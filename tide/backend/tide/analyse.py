@@ -323,47 +323,50 @@ class Analyser:
         # Context clips are written on the CPU while the GPU searches the next point's pictures.
         clip_writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clips")
         clip_jobs: list[tuple[int, Future]] = []
-        for p in plans:
-            start, end = context_range(p.timestamp_s, ctx, info.duration_s)
-            # One sampling grid for the whole video (from the window start): points whose context overlaps
-            # read the same pictures, so each is searched once (seen). Points 60 s apart sit on the grid.
-            grid_start = window.start_s + math.ceil(round((start - window.start_s) * fps, 6)) / fps
-            frames = iter_sampled_frames(path, file_key, grid_start, end, fps, preroll_s=app.frames.seek_preroll_s)
-            tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps, self.tracker)
-            drift = DriftFilter(self.cfg.drift)
-            first = len(pictures)
-            greys: list[np.ndarray] = []  # small grey copies for motion detection (stationary camera)
+        try:
+            for p in plans:
+                start, end = context_range(p.timestamp_s, ctx, info.duration_s)
+                # One sampling grid for the whole video (from the window start): points whose context overlaps
+                # read the same pictures, so each is searched once (seen). Points 60 s apart sit on the grid.
+                grid_start = window.start_s + math.ceil(round((start - window.start_s) * fps, 6)) / fps
+                frames = iter_sampled_frames(path, file_key, grid_start, end, fps, preroll_s=app.frames.seek_preroll_s)
+                tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps, self.tracker)
+                drift = DriftFilter(self.cfg.drift)
+                first = len(pictures)
+                greys: list[np.ndarray] = []  # small grey copies for motion detection (stationary camera)
 
-            def source(frames=frames, greys=greys):
-                for f in frames:
-                    if self.cfg.motion.enabled:
-                        greys.append(small_grey(f.image, self.cfg.motion.work_width))
-                    yield f.frame_idx, f.t_s, hhmmss(f.t_s), f.image
+                def source(frames=frames, greys=greys):
+                    for f in frames:
+                        if self.cfg.motion.enabled:
+                            greys.append(small_grey(f.image, self.cfg.motion.work_width))
+                        yield f.frame_idx, f.t_s, hhmmss(f.t_s), f.image
 
-            self._run_pictures(source(), tracker, file_key, enhance, crops, pictures, save_picture,
-                               lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
-                               cancelled, tick, drift, seen)
-            drifting.update(drift.drifting())
-            self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
-            clip_jobs.append((len(points), clip_writer.submit(
-                save_clip, path, start, end, p.clip_path, app.clips, preroll_s=app.frames.seek_preroll_s)))
-            points.append(PointPlan(p.point_no, p.timestamp_s, p.clip_path))
+                self._run_pictures(source(), tracker, file_key, enhance, crops, pictures, save_picture,
+                                   lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
+                                   cancelled, tick, drift, seen)
+                drifting.update(drift.drifting())
+                self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
+                clip_jobs.append((len(points), clip_writer.submit(
+                    save_clip, path, start, end, p.clip_path, app.clips, preroll_s=app.frames.seek_preroll_s)))
+                points.append(PointPlan(p.point_no, p.timestamp_s, p.clip_path))
 
-        # Species richness: sparse scan of the whole window (only pictures with something in them are kept).
-        scan_tracker = VideoTracker(f"{file_key}-scan", self.cfg.track, scan_fps, self.tracker)
-        frames = iter_sampled_frames(path, file_key, window.start_s, window.end_s, scan_fps,
-                                     preroll_s=app.frames.seek_preroll_s)
-        self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
-                           file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
-                           None, False, cancelled, tick, seen=seen)
-        species, vectors, best = self._identify(pictures, crops, index, cancelled,
-                                                lambda f: on_progress(SEARCH_SHARE + (0.98 - SEARCH_SHARE) * f))
-        clip_writer.shutdown(wait=True)
-        for i, job in clip_jobs:
-            try:
-                job.result()
-            except Exception as e:  # a missing clip never stops the count; staff can still see the pictures
-                log.warning("Context clip for point %s of %s not saved: %s", points[i].point_no, path.name, e)
-                points[i] = PointPlan(points[i].point_no, points[i].timestamp_s, None)
-        on_progress(1.0)
-        return FileResult(pictures, species, vectors, best, window, points, drifting)
+            # Species richness: sparse scan of the whole window (only pictures with something in them are kept).
+            scan_tracker = VideoTracker(f"{file_key}-scan", self.cfg.track, scan_fps, self.tracker)
+            frames = iter_sampled_frames(path, file_key, window.start_s, window.end_s, scan_fps,
+                                         preroll_s=app.frames.seek_preroll_s)
+            self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
+                               file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
+                               None, False, cancelled, tick, seen=seen)
+            species, vectors, best = self._identify(pictures, crops, index, cancelled,
+                                                    lambda f: on_progress(SEARCH_SHARE + (0.98 - SEARCH_SHARE) * f))
+            clip_writer.shutdown(wait=True)
+            for i, job in clip_jobs:
+                try:
+                    job.result()
+                except Exception as e:  # a missing clip never stops the count; staff can still see the pictures
+                    log.warning("Context clip for point %s of %s not saved: %s", points[i].point_no, path.name, e)
+                    points[i] = PointPlan(points[i].point_no, points[i].timestamp_s, None)
+            on_progress(1.0)
+            return FileResult(pictures, species, vectors, best, window, points, drifting)
+        finally:  # also when stopped: a clip being written finishes before its folder is removed
+            clip_writer.shutdown(wait=True)

@@ -3,10 +3,13 @@
 Interactive docs while it's running: http://127.0.0.1:8765/docs
 The contract is described in ../API.md — keep the two in step.
 """
+import logging
 import os
 import re
 import secrets
 import shutil
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -43,7 +46,6 @@ db = Database(DATA_DIR / "tide.db")
 settings_store = ProtocolSettingsStore(DATA_DIR, db)
 protocol = settings_store.current
 jobs = Jobs(db, DATA_DIR, protocol, app_config)
-jobs.resume_counts()  # counting cut off when the app was last closed starts again
 
 
 def check_token(x_tide_token: str = Header(""), token: str = Query("")):
@@ -51,7 +53,21 @@ def check_token(x_tide_token: str = Header(""), token: str = Query("")):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or wrong token")
 
 
-app = FastAPI(title="TIDE API", version=__version__, dependencies=[Depends(check_token)])
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """After start-up, add the default reference pictures in the background, so /health answers at once
+    (working out their fingerprints takes minutes on a CPU). Does nothing once they're all added."""
+    def seed():
+        try:
+            pipeline.seed_default_references(db, DATA_DIR)
+        except Exception:  # never stop the app over the default pictures
+            logging.getLogger(__name__).exception("Adding the default reference pictures failed")
+
+    threading.Thread(target=seed, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="TIDE API", version=__version__, dependencies=[Depends(check_token)], lifespan=lifespan)
 # The UI is served from the Vite dev server (development) or a local file (installed app).
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -175,8 +191,21 @@ def add_reference_from_detection(species_id: str, body: ReferenceFromDetection):
     return db.list_references(species_id)
 
 
+@app.delete("/species/{species_id}/references/{ref_id}", response_model=list[Reference], tags=["species"])
+def remove_species_reference(species_id: str, ref_id: int, x_tide_user: str = Header("")):
+    """Remove one reference picture of this species (Species Registry). Who did it is recorded."""
+    person = _person(x_tide_user, "the removal")
+    _species_or_404(species_id)
+    path = db.remove_species_reference(species_id, ref_id, person)
+    if path is None:
+        raise HTTPException(404, "That picture isn't one of this species' reference pictures.")
+    path.unlink(missing_ok=True)
+    return db.list_references(species_id)
+
+
 @app.delete("/references/{ref_id}", status_code=204, tags=["species"])
 def remove_reference(ref_id: int):
+    """Older route, kept so nothing breaks. The app uses DELETE /species/{id}/references/{ref_id}."""
     path = db.remove_reference(ref_id)
     if path:
         path.unlink(missing_ok=True)
@@ -301,6 +330,33 @@ def confirm_window(video_id: int, body: VideoWindowPatch, x_tide_user: str = Hea
     confirmed = db.confirm_window(video_id, body.window_start_s, body.window_end_s, person)
     jobs.count_video(video_id)  # count the subsample points in the confirmed window (in the background)
     return confirmed
+
+
+@app.post("/videos/{video_id}/count", status_code=204, tags=["surveys"])
+def count_again(video_id: int, x_tide_user: str = Header("")):
+    """Count a video's confirmed window again (after counting was stopped, failed or interrupted)."""
+    _person(x_tide_user, "the count")
+    video = db.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "No such video")
+    if not video.confirmed_by or video.window_start_s is None:
+        raise HTTPException(422, f"Confirm the analysis window of {video.file_name} first.")
+    if jobs.is_counting(video_id):
+        raise HTTPException(409, f"{video.file_name} is already being counted.")
+    jobs.count_video(video_id)
+    return Response(status_code=204)
+
+
+@app.post("/videos/{video_id}/count/stop", status_code=204, tags=["surveys"])
+def stop_count(video_id: int, x_tide_user: str = Header("")):
+    """Stop counting a video. Nothing of the stopped count is saved; it can be counted again later."""
+    person = _person(x_tide_user, "who stopped it")
+    video = db.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "No such video")
+    if not jobs.stop_count(video_id, person):
+        raise HTTPException(409, f"{video.file_name} isn't being counted.")
+    return Response(status_code=204)
 
 
 @app.get("/frames/{frame_id}/image", response_class=FileResponse, tags=["surveys"])
@@ -450,9 +506,10 @@ def add_labels(body: LabelIn):
     if (body.box is None) != (body.frame_id is None):
         raise HTTPException(422, "A drawn box needs both the picture and the box.")
 
-    def add_reference(species_id: str, crop: Path, by: str):
-        try:
-            pipeline.add_reference_pictures(db, DATA_DIR, species_id, [str(crop)], by)
+    def add_reference(species_id: str, crop: Path, by: str, track_id: str):
+        try:  # the crop remembers where the fish was seen, for the Species Registry
+            pipeline.add_reference_pictures(db, DATA_DIR, species_id, [str(crop)], by,
+                                            db.track_origin(body.survey_id, track_id))
         except ModelMissingError:
             pass  # labelling never fails because the species model is missing
 

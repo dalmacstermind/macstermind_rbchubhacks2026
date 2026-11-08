@@ -22,7 +22,7 @@ describe("tools column", () => {
     const { html, buttons } = render("upload");
     expect(html).toContain('<nav aria-label="Tools"');
     expect(html).toContain(">Tools<");
-    expect(buttons.map((b) => b.text)).toEqual(["Blind QC", "Trends", "Species list", "Settings"]);
+    expect(buttons.map((b) => b.text)).toEqual(["Blind QC", "Trends", "Species Registry", "Settings"]);
   });
 
   it("marks only the current tool with aria-current=page", () => {

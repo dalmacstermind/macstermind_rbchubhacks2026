@@ -7,7 +7,7 @@ as a background job, saves the pictures and writes the results to the database.
 Demo mode (no model files): the old stub below still runs, and the app shows "Demo mode" so
 sample results are never presented as live inference (CLAUDE.md, hard constraint 7).
 """
-import itertools
+import importlib.util
 import logging
 import random
 import shutil
@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from functools import cache
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator
@@ -28,13 +29,16 @@ from tide import device
 from tide.analyse import IMAGE_EXT as AV_IMAGE_EXT
 from tide.analyse import SEARCH_SHARE, Analyser, Cancelled, FileResult, read_image
 from tide.config import AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_vision_config
+from tide.fetch_models import BIOCLIP_REVISION
+from tide.fetch_reference_images import load_fingerprints
+from tide.fetch_reference_images import load_manifest as load_seed_manifest
 from tide.detect import CfdDetector, ModelMissingError
 from tide.frames import probe_video
 from tide.ingest import recorded_date, transect_stat
 from tide.protocol import AnalysisWindow, WindowProposal, propose_window
-from tide.species import BioClipEncoder, ReferenceIndex, crop_box, match
+from tide.species import BioClipEncoder, ReferenceIndex, crop_box, match, prepare_reference
 
-from .db import Database
+from .db import Database, ReferenceOrigin
 from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus, Reidentified
 from .settings import survey_protocol
 
@@ -108,6 +112,17 @@ def estimate_clarity(picture: Path) -> float | None:
     return None
 
 
+@cache
+def _importable(module: str) -> bool:
+    """True if a Python package is installed. find_spec looks for it without importing it (importing
+    PyTorch takes seconds). Cached: installing packages needs a back-end restart anyway."""
+    return importlib.util.find_spec(module) is not None
+
+
+def missing_packages(modules: tuple[str, ...]) -> list[str]:
+    return [m for m in modules if not _importable(m)]
+
+
 class Vision:
     """The real models, created once and kept (CLAUDE.md: never reload per frame or request).
 
@@ -127,14 +142,28 @@ class Vision:
         self.lock = threading.Lock()
 
     @property
+    def missing_packages(self) -> list[str]:
+        """Python packages the detector and tracking need that aren't installed (empty when a test model
+        is swapped in). The weights alone aren't enough: PyTorch and friends must be installed too."""
+        if self._detector is not None:
+            return []
+        tracking = ("supervision", "trackers") if self.cfg is not None and self.cfg.track.enabled else ()
+        return missing_packages(("torch", "rfdetr", *tracking))
+
+    @property
     def installed(self) -> bool:
-        """True when the fish detector's weights are on disk (otherwise: demo mode)."""
-        return self._detector is not None or (self.cfg is not None and self.cfg.detect.checkpoint.is_file())
+        """True when the fish detector's weights are on disk AND the packages to run them are installed
+        (otherwise: demo mode)."""
+        if self._detector is not None:
+            return True
+        return self.cfg is not None and self.cfg.detect.checkpoint.is_file() and not self.missing_packages
 
     @property
     def species_installed(self) -> bool:
-        return self._encoder is not None or (self.cfg is not None and (self.cfg.species.model_dir /
-                                                                        "open_clip_config.json").is_file())
+        if self._encoder is not None:
+            return True
+        return (self.cfg is not None and (self.cfg.species.model_dir / "open_clip_config.json").is_file()
+                and not missing_packages(("torch", "open_clip")))
 
     @property
     def encoder_name(self) -> str:
@@ -161,13 +190,20 @@ class Vision:
     def status(self, references: int) -> ModelStatus:
         mode = device.mode()
         if not self.installed:
-            why = self.error or "The fish detector files aren't in the models folder yet"
+            weights = self.cfg is not None and self.cfg.detect.checkpoint.is_file()
+            missing = self.missing_packages
+            why = (self.error
+                   or (f"The model files are here, but the software that runs them isn't installed"
+                       f" ({', '.join(missing)}; developers: pip install -r requirements.txt)" if weights and missing
+                       else "The fish detector files aren't in the models folder yet"))
             return ModelStatus(ready=True, demo=True, name="Demo mode", device=mode, gpu=device.gpu_name() or "",
                                message=f"{why}, so results are sample data.")
         species = self.encoder_name if self.species_installed else ""
         msg = (f"Fish detector: Community Fish Detector (RF-DETR). Species: {species or 'not installed'}"
                f" with {references} reference picture{'s' if references != 1 else ''}.")
-        if species and not references:
+        if SEEDING["running"]:
+            msg += f" Adding the default reference pictures: {SEEDING['done']} of {SEEDING['total']}…"
+        elif species and not references:
             msg += " Add reference pictures in Species so fish can be identified."
         return ModelStatus(ready=True, demo=False, name="Community Fish Detector + BioCLIP 2" if species else
                            "Community Fish Detector", message=msg, device=mode, gpu=device.gpu_name() or "",
@@ -220,20 +256,74 @@ def _need_species_model():
     return enc
 
 
-def add_reference_pictures(db: Database, data_dir: Path, species_id: str, paths: list[str], by: str) -> int:
-    """Add pictures from this computer as references for one species. Returns how many were added."""
-    enc = _need_species_model()
+def add_reference_pictures(db: Database, data_dir: Path, species_id: str, paths: list[str], by: str,
+                           origin: ReferenceOrigin | None = None, source: str | None = None,
+                           vectors: list[np.ndarray] | None = None) -> int:
+    """Add pictures as references for one species. Returns how many were added.
+
+    origin: where the fish was seen (survey, video, time) when the picture is a crop from a survey;
+    None for pictures uploaded from this computer (then the file name is the source).
+    source: the text shown as where the picture came from, if not one of those (e.g. a photo credit).
+    vectors: fingerprints worked out earlier with the same species model, one per path (then the model
+    isn't needed here)."""
+    enc = None if vectors is not None else _need_species_model()
     out_dir = data_dir / "references" / species_id
     added = 0
-    for p in paths:
+    for i, p in enumerate(paths):
         src = Path(p)
-        img = read_image(src)  # raises a plain-English error for unreadable files
-        h, w = img.shape[:2]
-        if w > 1024:
-            img = cv2.resize(img, (1024, round(h * 1024 / w)), interpolation=cv2.INTER_AREA)
+        img = prepare_reference(read_image(src))  # read_image raises a plain-English error for bad files
         dest = _save_jpg(img, out_dir / f"{uuid.uuid4().hex}.jpg")
-        db.add_reference(species_id, dest, enc.encode([img])[0], VISION.encoder_name, src.name, by)
+        text = source or (_origin_text(origin) if origin else src.name)
+        vector = vectors[i] if vectors is not None else enc.encode([img])[0]
+        db.add_reference(species_id, dest, vector, VISION.encoder_name, text, by, origin)
         added += 1
+    return added
+
+
+SEED_BY = "TIDE default pictures"
+# Progress of adding the default reference pictures (shown in the model status while it runs).
+SEEDING = {"running": False, "done": 0, "total": 0}
+
+
+def seed_default_references(db: Database, data_dir: Path, manifest: dict[str, list[dict]] | None = None) -> int:
+    """Add the default reference pictures (downloaded with tide.fetch_reference_images) to the Species
+    Registry, once each. Runs in the background after start-up.
+
+    The pictures and their fingerprints ship with the code (models/reference-seed, through Git LFS), so
+    this takes seconds and doesn't need the species model. Saved fingerprints are used only if they
+    were made by the same species model and version; otherwise they're worked out with the model, or
+    the picture waits until the model is installed. Skips species staff removed and pictures added
+    before (also if staff removed them since). Returns how many were added."""
+    if VISION.cfg is None:
+        return 0
+    manifest = load_seed_manifest() if manifest is None else manifest
+    seed_dir = VISION.cfg.species.seed_dir
+    saved = load_fingerprints(seed_dir)
+    prints = saved.vectors if saved and saved.model == VISION.encoder_name and \
+        saved.revision == BIOCLIP_REVISION else {}
+    can_compute = VISION.species_installed
+    registry = {s.id for s in db.list_species()}
+    todo = [(sid, e) for sid, entries in manifest.items() if sid in registry for e in entries
+            if not db.seeded(f"inat:{e['photo_id']}") and (seed_dir / sid / e["file"]).is_file()
+            and (e["photo_id"] in prints or can_compute)]  # otherwise: wait for the species model
+    SEEDING.update(running=bool(todo), done=0, total=len(todo))
+    added = 0
+    try:
+        for sid, e in todo:
+            credit = f"iNaturalist photo {e['photo_id']} · {e['credit']}" if e.get("credit") else "iNaturalist"
+            try:
+                vector = prints.get(e["photo_id"])
+                add_reference_pictures(db, data_dir, sid, [str(seed_dir / sid / e["file"])], SEED_BY,
+                                       source=credit, vectors=None if vector is None else [vector])
+                added += 1
+            except (ValueError, OSError) as err:  # an unreadable picture never stops the rest
+                log.warning("Default reference picture %s skipped: %s", e["file"], err)
+            db.mark_seeded(f"inat:{e['photo_id']}", sid)
+            SEEDING["done"] += 1
+    finally:
+        SEEDING["running"] = False
+    if added:
+        log.info("Added %d default reference pictures", added)
     return added
 
 
@@ -252,7 +342,14 @@ def add_reference_from_detection(db: Database, data_dir: Path, species_id: str, 
     if crop is None:
         raise ValueError("That fish is too small to use as a reference picture.")
     dest = _save_jpg(crop, data_dir / "references" / species_id / f"{uuid.uuid4().hex}.jpg")
-    db.add_reference(species_id, dest, enc.encode([crop])[0], VISION.encoder_name, f"Checked fish {detection_id}", by)
+    origin = db.detection_origin(detection_id)
+    source = _origin_text(origin) if origin else f"Checked fish {detection_id}"
+    db.add_reference(species_id, dest, enc.encode([crop])[0], VISION.encoder_name, source, by, origin)
+
+
+def _origin_text(o: ReferenceOrigin) -> str:
+    """"GX010021.MP4 at 00:06:00", or just the file name for a photo."""
+    return f"{o.source_file} at {o.source_time}" if o.source_time else o.source_file
 
 
 def reidentify(db: Database, survey_id: int) -> Reidentified:
@@ -284,6 +381,15 @@ SAMPLE_DETECTIONS = {  # boxes for the three sample pictures (species, confidenc
 # ──────────────────── Job runner (no changes needed) ────────────────────
 
 @dataclass
+class _CountRun:
+    """One queued or running count of a video. `stop` is set when a person stops it, or when the window
+    is confirmed again (a newer count replaces this one)."""
+    stop: threading.Event = field(default_factory=threading.Event)
+    by: str = ""  # who stopped it
+    started: bool = False
+
+
+@dataclass
 class _JobState:
     job: Job
     cancel: threading.Event = field(default_factory=threading.Event)
@@ -297,6 +403,8 @@ class Jobs:
         self.protocol, self.app = protocol, app
         self.jobs: dict[str, _JobState] = {}
         self.lock = threading.Lock()
+        self._count_runs: dict[int, _CountRun] = {}  # video id -> its current (queued or running) count
+        db.stop_interrupted_counts()  # counts from before TIDE last closed can't carry on
 
     def surveys_dir(self) -> Path:
         return self.data_dir / "surveys"
@@ -499,39 +607,67 @@ class Jobs:
 
     # ── Counting at the subsample points, after a person confirmed the window ──
 
-    def count_video(self, video_id: int, resumed: bool = False) -> None:
+    def count_video(self, video_id: int) -> None:
         """Queue point counting for one video. Runs one video at a time in the background.
-
-        Videos a person just confirmed go first; counts restarted after the app was closed (resumed)
-        wait until those are done, so an old long video never holds up the one staff are looking at.
-        """
-        self.db.set_count_state(video_id, "queued", "Waiting for another video to finish counting"
-                                if resumed else "Waiting to count")
+        A count already waiting or running for this video is stopped: the new one replaces it."""
+        run = _CountRun()
         with self.lock:
+            old = self._count_runs.get(video_id)
+            if old:
+                old.stop.set()
+            self._count_runs[video_id] = run
             if not hasattr(self, "_count_queue"):
-                self._count_queue: queue.PriorityQueue[tuple[int, int, int]] = queue.PriorityQueue()
-                self._count_order = itertools.count()
+                self._count_queue: queue.Queue[tuple[int, _CountRun]] = queue.Queue()
                 threading.Thread(target=self._count_worker, daemon=True).start()
-            self._count_queue.put((1 if resumed else 0, next(self._count_order), video_id))
+        self.db.set_count_state(video_id, "queued", "Waiting to count")
+        self._count_queue.put((video_id, run))
 
-    def resume_counts(self) -> list[int]:
-        """Count again any video whose counting was cut off (the app was closed part-way through)."""
-        ids = self.db.unfinished_counts()
-        for video_id in ids:
-            log.info("Counting video %s again: it was interrupted", video_id)
-            self.count_video(video_id, resumed=True)
-        return ids
+    def is_counting(self, video_id: int) -> bool:
+        with self.lock:
+            return video_id in self._count_runs
+
+    def stop_count(self, video_id: int, by: str) -> bool:
+        """Stop a video's count (a person chose Stop counting). Returns False if it isn't counting.
+        A running count stops at its next picture; nothing of it is saved."""
+        with self.lock:
+            run = self._count_runs.get(video_id)
+            if run is None:
+                return False
+            run.by = by
+            run.stop.set()
+            if not run.started:  # still waiting in the queue: stopped straight away
+                del self._count_runs[video_id]
+                self.db.set_count_state(video_id, "stopped", f"Counting stopped by {by}")
+        return True
 
     def _count_worker(self):
         while True:
-            _, _, video_id = self._count_queue.get()
+            video_id, run = self._count_queue.get()
+            with self.lock:
+                if run.stop.is_set():  # stopped or replaced while waiting
+                    continue
+                run.started = True
             try:
-                self._count_one(video_id)
+                self._count_one(video_id, run)
+            except Cancelled:
+                if self._current(video_id, run):  # not replaced by a newer count of the same video
+                    self.db.set_count_state(video_id, "stopped",
+                                            f"Counting stopped by {run.by}" if run.by else "Counting stopped")
             except Exception as e:  # shown to staff on the report
                 log.exception("Counting video %s failed", video_id)
-                self.db.set_count_state(video_id, "failed", str(e) or e.__class__.__name__)
+                if self._current(video_id, run):
+                    self.db.set_count_state(video_id, "failed", str(e) or e.__class__.__name__)
+            finally:
+                with self.lock:
+                    if self._count_runs.get(video_id) is run:
+                        del self._count_runs[video_id]
 
-    def _count_one(self, video_id: int) -> None:
+    def _current(self, video_id: int, run: _CountRun) -> bool:
+        with self.lock:
+            return self._count_runs.get(video_id) is run
+
+    def _count_one(self, video_id: int, run: _CountRun | None = None) -> None:
+        run = run or _CountRun()
         v = self.db.video_row(video_id)
         if v is None:
             return
@@ -554,6 +690,8 @@ class Jobs:
         key = window.video_id
 
         def progress(fr: float):
+            if run.stop.is_set():  # a stopped count must not write "Counting…" over "stopped"
+                return
             stage = ("Searching the pictures for fish" if fr < SEARCH_SHARE else
                      "Identifying the species" if fr < 0.99 else "Saving the results")
             spent = time.monotonic() - started
@@ -561,12 +699,30 @@ class Jobs:
             eta = max(0.0, spent * (1 - fr) / fr) if fr >= 0.05 and spent >= 5 else None
             self.db.set_count_state(video_id, "running", stage, round(fr * 100, 1), eta)
 
-        res = analyser.analyse_video(
-            Path(v["path"]), key, window=window, protocol=self.protocol_for(v["survey_id"]), app=self.app,
-            clip_dir=out_dir / "clips" / key, enhance=req.enhance,
-            index=ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name)),
-            save_picture=lambda img, name: _save_jpg(img, out_dir / f"{key}_{name}.jpg"),
-            on_progress=progress, cancelled=lambda: False, short_window=bool(v["short_window"]))
+        clip_dir = out_dir / "clips" / key
+        saved: list[Path] = []
+
+        def save_picture(img, name):
+            path = _save_jpg(img, out_dir / f"{key}_{name}.jpg")
+            saved.append(path)
+            return path
+
+        try:
+            if run.stop.is_set():
+                raise Cancelled
+            res = analyser.analyse_video(
+                Path(v["path"]), key, window=window, protocol=self.protocol_for(v["survey_id"]), app=self.app,
+                clip_dir=clip_dir, enhance=req.enhance,
+                index=ReferenceIndex.build(self.db.reference_vectors(VISION.encoder_name)),
+                save_picture=save_picture, on_progress=progress, cancelled=run.stop.is_set,
+                short_window=bool(v["short_window"]))
+            if run.stop.is_set():  # stopped while the last step was finishing: keep nothing
+                raise Cancelled
+        except Cancelled:  # remove the half-made clips and pictures; nothing of this count is saved
+            shutil.rmtree(clip_dir, ignore_errors=True)
+            for path in saved:
+                Path(path).unlink(missing_ok=True)
+            raise
         for pt in res.points:
             self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
         progress(0.99)

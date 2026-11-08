@@ -38,6 +38,7 @@ class Species(SpeciesIn):
     custom: bool = False
     added_at: str = ""
     reference_count: int = 0  # reference pictures used to identify this species (BioCLIP 2)
+    thumbnail: Optional[str] = None  # URL path of the first reference picture (Species Registry card)
 
 
 class Reference(Model):
@@ -48,6 +49,11 @@ class Reference(Model):
     source: str  # original file name, or "Survey 4, picture 12" when made from a checked fish
     added_by: str = ""
     added_at: str = ""
+    # Where it came from (empty for pictures uploaded from this computer, and for older pictures):
+    survey_id: Optional[int] = None
+    survey_site: str = ""  # the survey's site name, if the survey still exists
+    source_file: str = ""  # the video or picture file the fish was seen in
+    source_time: str = ""  # time in the video, e.g. "00:06:00"
 
 
 class ReferencesIn(Model):
@@ -154,6 +160,7 @@ class SurveyInfo(Model):
     # recorded, the shipped defaults, and protocol_recorded is False (the report says so).
     protocol: Optional[ProtocolSettings] = None
     protocol_recorded: bool = False
+    windows_to_confirm: int = 0  # videos whose analysis window no person has confirmed yet (nothing counted)
 
 
 class SurveyPatch(Model):
@@ -321,9 +328,11 @@ class VideoOut(Model):
     too_short: bool = False  # flagged: not processed
     short_window: bool = False  # shorter than the protocol window (window.allow_short_videos)
     confirmed_by: str = ""
-    count_state: str = ""  # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed"
-    count_detail: str = ""  # what counting is doing now ("Identifying the species"), or why it failed
-    count_percent: Optional[float] = None  # 0–100 while queued or running
+    # "" (waiting for a confirmed window) | "queued" | "running" | "done" | "failed" | "stopped" (by a person,
+    # or because TIDE closed while counting; nothing of a stopped count is saved)
+    count_state: str = ""
+    count_detail: str = ""  # what counting is doing now ("Identifying the species"), or why it stopped or failed
+    count_percent: Optional[float] = None  # 0–100 while running
     count_eta_s: Optional[float] = None  # estimated seconds left while running (None: not known yet)
     points: list[PointOut]
     mean_count: Optional[float] = None

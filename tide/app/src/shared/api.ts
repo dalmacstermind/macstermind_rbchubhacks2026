@@ -58,6 +58,8 @@ export type SurveyInfo = {
   protocol: ProtocolSettings;
   /** false for surveys processed before TIDE recorded the values: then `protocol` is the shipped defaults. */
   protocolRecorded: boolean;
+  /** Videos whose analysis window no person has confirmed yet: nothing of them is counted. */
+  windowsToConfirm: number;
 };
 
 export type SurveyData = { survey: SurveyInfo; frames: Frame[] };
@@ -99,7 +101,7 @@ export type ModelStatus = {
   device?: "gpu" | "cpu"; // shown as "GPU mode" / "CPU mode"
   gpu?: string; // graphics card name in GPU mode
   speciesModel?: string; // e.g. "BioCLIP 2", or "" when it isn't installed
-  references?: number; // reference pictures in the species list
+  references?: number; // reference pictures in the Species Registry
 };
 
 /** A reference picture of a species. The species model compares fish with these. */
@@ -107,9 +109,14 @@ export type Reference = {
   id: string;
   speciesId: string;
   image: string; // full URL (the token is added by api.ts)
-  source: string; // original file name, or "Checked fish 12"
+  source: string; // short description: the file name, or e.g. "GX010021.MP4 at 00:06:00"
   addedBy: string;
   addedAt: string;
+  // Where it came from (empty for pictures uploaded from this computer, and for older pictures):
+  surveyId: number | null;
+  surveySite: string; // the survey's site name, if the survey still exists
+  sourceFile: string; // the video or picture the fish was seen in
+  sourceTime: string; // time in the video, e.g. "00:06:00"
 };
 
 export type Reidentified = { tracks: number; changed: number };
@@ -157,9 +164,10 @@ export type VideoResult = {
   tooShort: boolean; // flagged: not processed
   shortWindow: boolean; // shorter than the protocol window: counts not comparable with full windows
   confirmedBy: string;
-  countState: "" | "queued" | "running" | "done" | "failed"; // "" = waiting for a confirmed window
-  countDetail: string; // what counting is doing now ("Identifying the species"), or why it failed
-  countPercent: number | null; // 0–100 while queued or running
+  // "" = waiting for a confirmed window; "stopped" = a person stopped it, or TIDE closed while counting
+  countState: "" | "queued" | "running" | "done" | "failed" | "stopped";
+  countDetail: string; // what counting is doing now ("Identifying the species"), or why it stopped or failed
+  countPercent: number | null; // 0–100 while running
   countEtaS: number | null; // estimated seconds left while running (null: not known yet)
   points: PointResult[];
   meanCount: number | null;
@@ -278,7 +286,15 @@ export type Evaluation = {
     shareWithin: number;
     zeroAgreement: number;
   }[];
-  points: { video: string; pointNo: number; ai: number; human: number; absDiff: number; pctDiff: number; within: boolean }[];
+  points: {
+    video: string;
+    pointNo: number;
+    ai: number;
+    human: number;
+    absDiff: number;
+    pctDiff: number;
+    within: boolean;
+  }[];
   unmatchedHuman: string[];
   source: string;
 };
@@ -302,7 +318,6 @@ export type Video = {
   confirmedAt: string;
   shortWindow?: boolean; // shorter than the protocol window (protocol.yaml window.allow_short_videos)
 };
-
 
 export type PickedFile = { path: string; name: string; size: number };
 export type SkippedFile = { name: string; reason: string };
@@ -344,7 +359,8 @@ export type TideApi = {
       add: (speciesId: string, paths: string[], by: string) => Promise<Reference[]>;
       /** Use a checked fish's crop as a reference picture. */
       fromDetection: (speciesId: string, detectionId: string, by: string) => Promise<Reference[]>;
-      remove: (referenceId: string) => Promise<void>;
+      /** Remove one picture of this species; saved with the person's name. Returns the pictures left. */
+      remove: (speciesId: string, referenceId: string, person: string) => Promise<Reference[]>;
     };
   };
   analysis: {
@@ -369,6 +385,10 @@ export type TideApi = {
   videos: {
     /** Confirm (or change) a video's analysis window, saved with the person's name. */
     confirmWindow: (id: string, startS: number, endS: number, person: string) => Promise<Video>;
+    /** Count the confirmed window again (after counting was stopped, failed or interrupted). */
+    startCount: (id: number, person: string) => Promise<void>;
+    /** Stop counting; nothing of the stopped count is kept. */
+    stopCount: (id: number, person: string) => Promise<void>;
     /** Correct the recording date, Transect or STAT, or confirm the video's visibility. */
     details: (id: number, patch: VideoDetailsPatch) => Promise<void>;
   };

@@ -155,11 +155,24 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  wide?: boolean;
+  wide?: boolean | "xl"; // true: medium-wide; "xl": large (e.g. the Species Registry dialog)
 }) {
   const box = useRef<HTMLDivElement>(null);
+  // When the dialog closes, put keyboard focus back on whatever opened it (for example a card).
+  // This must run before the effect below moves focus into the dialog, so it remembers the opener.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const opener = document.activeElement as HTMLElement | null;
+    return () => {
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
+  // Esc closes the dialog, but only the top one when a dialog opens on top of another
+  // (for example "Are you sure?" over the species dialog).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (e.key === "Escape" && dialogs[dialogs.length - 1] === box.current) onClose();
+    };
     window.addEventListener("keydown", onKey);
     box.current?.querySelector<HTMLElement>("input, select, button")?.focus();
     return () => window.removeEventListener("keydown", onKey);
@@ -172,7 +185,7 @@ export function Modal({
         aria-modal
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[85vh] overflow-auto rounded-2xl border border-border bg-card p-6 shadow-2xl`}
+        className={`w-full ${wide === "xl" ? "max-w-4xl" : wide ? "max-w-2xl" : "max-w-md"} max-h-[85vh] overflow-auto rounded-2xl border border-border bg-card p-6 shadow-2xl`}
       >
         <div className="mb-4 font-display text-lg font-semibold">{title}</div>
         {children}

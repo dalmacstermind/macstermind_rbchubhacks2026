@@ -34,7 +34,7 @@ While the back end is running, the same API is browsable and testable at **http:
 | POST | `/people` | `{name, role?}` | `Person[]`. Same name in any case updates the role |
 | DELETE | `/people/{name}` | | `Person[]` |
 
-### Species list
+### Species Registry
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
@@ -54,7 +54,8 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 | GET | `/species/{id}/references` | | `Reference[]` |
 | POST | `/species/{id}/references` | `{paths: string[], by?}` | `Reference[]`. `400` if a file is missing or not a picture; `503` if the species model isn't installed |
 | POST | `/species/{id}/references/from-detection` | `{detectionId, by?}` | `Reference[]`. Uses a checked fish's crop |
-| DELETE | `/references/{refId}` | | `204` |
+| DELETE | `/species/{id}/references/{refId}` | header `X-TIDE-User: <URL-encoded name>` | `Reference[]` left for that species. `400` if the person is missing or not on the people list; `404` if the picture isn't this species'. Recorded with who and when |
+| DELETE | `/references/{refId}` | | `204`. Older route without a person or species check; kept working, not used by the app |
 | GET | `/references/{refId}/image` | | the JPG (token in the query, like frame pictures) |
 
 ### Analysis (runs in the background)
@@ -82,6 +83,10 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 Nothing is counted until a person confirms the video's analysis window (`PATCH /videos/{id}`, below):
 confirming starts the point counting in the background (`countState` in the results), and confirming
 a different window counts again from scratch. Videos too short for the protocol are flagged, not counted.
+Counting can be stopped (`POST /videos/{id}/count/stop`) and started again on the same confirmed window
+(`POST /videos/{id}/count`). Nothing of a stopped count is saved. A count that was waiting or running
+when TIDE closed is marked `stopped` at the next start-up (it can't carry on), with a plain-English
+`countDetail`. `SurveyInfo.windowsToConfirm` says how many videos still wait for a person.
 
 Videos are analysed per the FFH protocol (`config/protocol.yaml`): confirmed window, a point every
 `subsample.interval_s`, each point's ±`context_s` clip tracked so one fish counts once, counted only
@@ -93,6 +98,8 @@ on every request, so labels and point edits show up at once.
 | --- | --- | --- | --- |
 | GET | `/surveys/{id}/results` | | `SurveyResults` |
 | PATCH | `/videos/{id}/details` | `{recordedAt?, transect?, stat?, visibility?}` | `204`. Recording details; the window itself is confirmed with `PATCH /videos/{id}` below |
+| POST | `/videos/{id}/count` | header `X-TIDE-User` | `204`. Count the confirmed window again (after it was stopped, failed or interrupted). `400` no person; `404`; `409` already counting; `422` window not confirmed |
+| POST | `/videos/{id}/count/stop` | header `X-TIDE-User` | `204`. Stop counting (a waiting count stops at once, a running one at its next picture); `countDetail` becomes "Counting stopped by <name>". `400` no person; `404`; `409` not counting |
 | PATCH | `/points/{id}` | `{totalFish?, invertebrates?, visibility?, notes?, by}` | `204`. Stored next to the AI's values; `-1` puts a count back to the AI's |
 | GET | `/points/{id}/clip` | | the ±context clip (MP4; token in the query) |
 
@@ -173,14 +180,19 @@ Species        {
                     custom: boolean,
                     addedBy: string,
                     addedAt: string,
-                    referenceCount: number      // reference pictures the species model uses (0 = can't be suggested)
+                    referenceCount: number,     // reference pictures the species model uses (0 = can't be suggested)
+                    thumbnail: string | null    // path of the first reference picture (Species Registry card)
                 }
 
 Reference      {
                     id: string, speciesId: string,
                     image: string,              // path like "/references/3/image"
-                    source: string,             // original file name, or "Checked fish 12"
-                    addedBy: string, addedAt: string
+                    source: string,             // short note: the file name, or e.g. "GX010021.MP4 at 00:06:00"
+                    addedBy: string, addedAt: string,
+                    // where it came from; empty for uploaded pictures and pictures added before this was recorded:
+                    surveyId: number | null, surveySite: string,
+                    sourceFile: string,         // the video or picture the fish was seen in
+                    sourceTime: string          // time in the video, e.g. "00:06:00"
                 }
 
 AnalysisRequest{
@@ -218,7 +230,8 @@ SurveyInfo     {
                     files: string[],
                     frameCount: number, status: "running" | "done" | "failed" | "cancelled",
                     protocol: ProtocolSettings,     // the values this survey was processed with
-                    protocolRecorded: boolean       // false: processed before these were recorded (defaults shown)
+                    protocolRecorded: boolean,      // false: processed before these were recorded (defaults shown)
+                    windowsToConfirm: number        // videos whose analysis window no person has confirmed (nothing counted)
                 }
 
 ProtocolSettings      { trimStartS, trimEndS, maxExtraSettleS, lengthS, intervalS, firstPointOffsetS,
@@ -274,7 +287,7 @@ ModelStatus    {
                     device: "gpu" | "cpu",      // shown as "GPU mode" / "CPU mode"
                     gpu: string,                // graphics card name in GPU mode
                     speciesModel: string,       // "BioCLIP 2", or "" when it isn't installed
-                    references: number          // reference pictures in the species list
+                    references: number          // reference pictures in the Species Registry
                 }
 
 Person         { name: string, role: string }
@@ -295,7 +308,8 @@ VideoResult    {
                     tooShort: boolean,          // flagged: not processed (only when window.allow_short_videos is false)
                     shortWindow: boolean,       // shorter than the protocol window: counts not comparable with full windows
                     confirmedBy: string,
-                    countState: "" | "queued" | "running" | "done" | "failed",   // "" = waiting for confirmation
+                    countState: "" | "queued" | "running" | "done" | "failed" | "stopped",  // "" = waiting for confirmation;
+                                                // "stopped" = stopped by a person, or TIDE closed while counting
                     countDetail: string,
                     countPercent: number | null, // 0–100 while queued or running
                     countEtaS: number | null,   // estimated seconds left while running (null: not known yet)

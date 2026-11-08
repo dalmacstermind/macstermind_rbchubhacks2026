@@ -148,7 +148,7 @@ def apply_label(db: Database, survey_id: int, track_ids: list[str], action: str,
         if use_as_reference and action == "species" and add_reference is not None:
             crop = db.track_crop(survey_id, tid)
             if crop and Path(crop).is_file():
-                add_reference(species, Path(crop), by)
+                add_reference(species, Path(crop), by, tid)
     return ids
 
 

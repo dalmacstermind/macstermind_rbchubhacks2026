@@ -12,6 +12,7 @@ import type {
   Unknowns,
   Video,
 } from "../../shared/api";
+import type { Species } from "../../shared/survey";
 
 let backend: BackendInfo = { url: "", token: "" };
 
@@ -73,7 +74,12 @@ export const api: TideApi = {
   },
 
   species: {
-    list: () => http("GET", "/species"),
+    // Card thumbnails are picture addresses on the local back end: add the token so <img> can load them.
+    list: async () =>
+      (await http<Species[]>("GET", "/species")).map((s) => ({
+        ...s,
+        thumbnail: s.thumbnail ? imageUrl(s.thumbnail) : null,
+      })),
     add: (s) => http("POST", "/species", s),
     update: (id, patch) => http("PATCH", `/species/${enc(id)}`, patch),
     remove: (id) => http("DELETE", `/species/${enc(id)}`),
@@ -86,7 +92,12 @@ export const api: TideApi = {
         withImages(
           await http("POST", `/species/${enc(speciesId)}/references/from-detection`, { detectionId, by }),
         ),
-      remove: (referenceId) => http("DELETE", `/references/${enc(referenceId)}`),
+      remove: async (speciesId, referenceId, person) =>
+        withImages(
+          await http("DELETE", `/species/${enc(speciesId)}/references/${enc(referenceId)}`, undefined, {
+            "X-TIDE-User": enc(person),
+          }),
+        ),
     },
   },
 
@@ -154,6 +165,8 @@ export const api: TideApi = {
       http<Video>("PATCH", `/videos/${enc(id)}`, { windowStartS: startS, windowEndS: endS }, {
         "X-TIDE-User": enc(person),
       }),
+    startCount: (id, person) => http("POST", `/videos/${id}/count`, undefined, { "X-TIDE-User": enc(person) }),
+    stopCount: (id, person) => http("POST", `/videos/${id}/count/stop`, undefined, { "X-TIDE-User": enc(person) }),
     details: (id, patch) => http("PATCH", `/videos/${id}/details`, patch),
   },
   points: { update: (id, patch) => http("PATCH", `/points/${id}`, patch) },

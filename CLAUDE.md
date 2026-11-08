@@ -38,8 +38,11 @@ The project does not invent a new method. When in doubt, do what the protocol sa
    Do **not** add Ultralytics YOLO (YOLOv8/YOLO11, AGPL-3.0) without team and client approval. Every new model, weight file, dataset or npm/pip dependency with an unusual
    licence must be added to `docs/LICENCES.md` before it is used. Electron, Recharts, ExcelJS,
    `@fontsource` (Sora, Manrope: SIL OFL) and PyInstaller are already in use and must be listed there.
-4. **Never commit media or client data.** No videos, images, ZIPs, extracted frames, or Coastal
-   Action spreadsheets in git. `data/` and `models/` are git-ignored.
+4. **Never commit media or client data.** No survey videos, survey images, ZIPs, extracted frames,
+   or Coastal Action spreadsheets in git. `data/` is git-ignored. Two exceptions, both through Git
+   LFS (`/.gitattributes`): the model weights in `models/`, and the openly licensed **default
+   reference pictures** in `models/reference-seed/` (only photos listed with their credit and
+   licence in `config/reference_seed.json`; never Coastal Action's footage or crops from it).
 5. **Conservative counting.** The protocol prefers undercounting to counting algae, sediment or
    bubbles. Uncertain detections become notes or review items, not counts.
 6. **Protocol values are settings, not constants.** Every protocol parameter comes from
@@ -125,17 +128,20 @@ tide/
       api.ts                     every backend call
       ui.tsx                     shared UI pieces (Chip, Modal, Field, buttons…)
       pages.ts                   the Page type: which screen is showing (no URLs)
+      speciesRegistry.ts         Species Registry helpers: sort, search, "New" badge, image count, picture source
       components/                AppTopBar, ToolsSidebar, StepTabs (the app frame, see App frame),
                                  VideoPlayer, PointTimeline, PointPanel, UnknownGallery,
                                  LabelCanvas, LabelPicker, NewSpeciesForm, TrendsChart…
-                                 (today: SuggestionButtons, ReferencePictures, UseAsReference, MatchAgainButton,
+                                 SpeciesGrid, SpeciesCard, SpeciesImagesDialog, ReferenceImageView,
+                                 SpeciesDetails (the Species Registry, see Species Registry),
+                                 (today: SuggestionButtons, UseAsReference, MatchAgainButton,
                                  ProtocolResults, VideoResultCard, PointTable, PointEditor, ImageResultsTable,
                                  EvaluationPanel, UnknownGallery, LabelPicker, LabelCanvas,
                                  Splash + OceanScene: start-up animation shown until the back end is ready;
                                  ReefScene, SeaFloor, Critters, SurveyCamera: its "reef" look, used at start-up;
                                  the plainer "classic" look is still available via Splash's `variant`)
       views/                     Upload, Processing, Results, ImageResults, Label, QC,
-                                 Trends, Species, Settings, People
+                                 Trends, Species (the Species Registry), Settings, People
                                  (today: Report shows the protocol results; Label is the Label page)
     test/                        Vitest
   backend/
@@ -155,6 +161,8 @@ tide/
       results.py                 survey results from stored rows: points, MeanCount, richness, image counts
       device.py                  GPU/CPU choice at start-up; one lock for all GPU work
       fetch_models.py            developer tool: put pinned, checksummed weights into models/ (never at runtime)
+      fetch_reference_images.py  developer tool: pick (--refresh) and fingerprint (--fingerprints) the default
+                                 reference pictures in models/reference-seed/ (never at runtime)
       count.py                   tolerance-window counting, MeanCount, richness, image counts
       clarity.py                 clarity index per frame/point/video; suggested visibility; pole bands (P2)
       trends.py                  per-video summaries for the Trends page
@@ -193,13 +201,13 @@ working, light/dark theme, shortcuts sheet, export check) and add the missing wi
 Every screen after "Who's working?" has the same frame (`App.tsx`):
 
 ```
-┌ Top bar: TIDE logo ······················· mode · ? Shortcuts · Light/Dark · person · Offline ┐
-├ Tools column ┬ Step tabs: 1 New survey | 2 Counting | 3 Report | 4 Check the fish | 5 Label … ┤
-│ TOOLS        │                                                                               │
-│ Blind QC     │                         the current page                                      │
-│ Trends       │                                                                               │
-│ Species list │                                                                               │
-│ Settings     │                                                                               │
+┌ Top bar: TIDE logo ··························· mode · ? Shortcuts · Light/Dark · person · Offline ┐
+├ Tools column ────┬ Step tabs: 1 New survey | 2 Counting | 3 Report | 4 Check the fish | 5 Label … ┤
+│ TOOLS            │                                                                               │
+│ Blind QC         │                         the current page                                      │
+│ Trends           │                                                                               │
+│ Species Registry │                                                                               │
+│ Settings         │                                                                               │
 ```
 
 1. **Top bar** (`components/AppTopBar.tsx`), across the whole window: TIDE logo on the left; on the
@@ -207,7 +215,7 @@ Every screen after "Who's working?" has the same frame (`App.tsx`):
    "? Shortcuts", the Light/Dark switch, who's working (click to switch person) and "Offline"
    (tooltip: nothing leaves this computer).
 2. **Tools column** (`components/ToolsSidebar.tsx`), a narrow column on the left under a **Tools**
-   heading: **Blind QC, Trends, Species list, Settings**. Locked while a survey is being counted.
+   heading: **Blind QC, Trends, Species Registry, Settings**. Locked while a survey is being counted.
 3. **Step tabs** (`components/StepTabs.tsx`), one horizontal row of five tabs above the page, in
    this order: **New survey | Counting | Report | Check the fish | Label unknown fish**, numbered
    1–5. "Check the fish" carries the badge of fish still to check or name. Counting is a progress
@@ -226,6 +234,49 @@ Rules for the navigation:
   `card`, `muted-foreground`), so both work in light and dark mode. No hard-coded colours.
 - There are no URLs: `App.tsx` keeps the current screen in `page` (type `Page` in `pages.ts`), and
   the Tools column and the step tabs change it with `go(page)`.
+
+## Species Registry (Tools → Species Registry)
+
+The species TIDE can name (`views/Species.tsx`). It is always called **Species Registry** in the UI.
+
+- **Cards, not a table** (`SpeciesGrid`, `SpeciesCard`): a CSS grid with **three cards per row**
+  (`grid-cols-3`; the cards widen or narrow with the window). Each card is a low, wide rectangle,
+  8rem tall (`h-32`): the picture on the left (two-fifths of the width), the names on the right. Long
+  names are shortened with "…" so every card stays the same height.
+  Cards are sorted alphabetically by common name (ignoring case). Each card is a `<button>` (Tab
+  reaches it, Enter or Space opens it, visible focus outline) showing: the first reference picture
+  (`loading="lazy"`) or a neutral fish-outline placeholder, the **common name**, the *scientific
+  name* if known, "N images", and a **New** badge if staff added it in the last 7 days.
+- **Search** (common or scientific name, any case) filters the cards as you type. "+ Add species"
+  and "Restore original list" are unchanged.
+- **Species dialog** (`SpeciesImagesDialog`): the names; all reference pictures as a grid of
+  thumbnails ("No reference images yet …" if none); "+ Add pictures". Clicking a thumbnail shows
+  it larger (`ReferenceImageView`) with where it came from (survey, video or picture file and time,
+  or the uploaded file's name), who added it and when, and **Remove image** (asks first). A
+  **Details** section (`SpeciesDetails`) holds what used to be table columns: group, habitat,
+  status (a human note, never set by the AI), added by, and "Remove species" for species staff
+  added. The fixed "Unknown/Unable to ID due to visibility" label has no pictures.
+- The dialog closes with Close, Esc or a click outside; keyboard focus then returns to the card
+  that opened it. This is built into the shared `Modal` (`ui.tsx`), which also closes only the top
+  dialog on Esc when one is open over another.
+- Pictures are always served by the local backend (`/references/{id}/image?token=…`), never from
+  the internet. Where a picture came from is stored with it (`species_references.survey_id`,
+  `source_file`, `source_time`); pictures added before this show their old short note instead.
+- **Default reference pictures:** 25 per species that ships with TIDE (not "Unknown"), from iNaturalist
+  research-grade observations, **CC0 or CC-BY only**. `config/reference_seed.json` (committed) lists
+  every photo with its observation link, photographer credit, licence and SHA-256. The pictures
+  and their species-model fingerprints (`models/reference-seed/fingerprints.npz`, labelled with the
+  model name and pinned revision) are **in the repo through Git LFS**, so every PC has them after a
+  pull, with no download step. On start-up the backend adds them in the background
+  (`pipeline.seed_default_references`): with the saved fingerprints this takes seconds and works
+  **without the species model** (also in Demo mode). Saved fingerprints are used only if they match
+  the species model name and `BIOCLIP_REVISION`; otherwise the model works them out, or the picture
+  waits until the model is installed. Each picture is added once: `seeded_references` records it, so
+  a picture staff removed is not added back. To change the set (developers, with internet and the
+  species model): `python -m tide.fetch_reference_images --refresh`, then `--fingerprints`, and
+  commit the list, the pictures and `fingerprints.npz` together. They show "TIDE default pictures" as added by and the credit as
+  source. **Most are out-of-water or close-up photos, unlike survey footage: measure suggestions with
+  and without them on a held-out video before relying on them.**
 
 ## Adding media
 
@@ -298,7 +349,8 @@ Rules for the navigation:
 - **Analysis window:** `propose_window()` proposes it during processing (a later start if sediment
   hasn't settled) and stores it in the `videos` table. It is **never applied without a person**:
   subsample points and the richness scan only accept an `AnalysisWindow` confirmed via
-  `PATCH /videos/{id}`. Videos shorter than trim + window + trim are flagged `too_short` and can't
+  `PATCH /videos/{id}`. The app tells staff when windows wait for them (`SurveyInfo.windowsToConfirm`:
+  the finish message, the Report and the survey list). Videos shorter than trim + window + trim are flagged `too_short` and can't
   be confirmed or processed.
 - **Protocol settings (Settings screen):** staff change the window, subsample and QC values in the
   app. The shipped defaults stay in `backend/config/protocol.yaml` (never written by the app); staff
@@ -499,13 +551,17 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 |---|---|---|
 | Keep | `GET /health` · `GET /model` · `GET /storage` | Start-up check; model and mode (`device: "gpu" \| "cpu"`); disk use |
 | Keep | `GET /people` · `POST /people` · `DELETE /people/{name}` | Who's working |
-| Keep, extend | `GET/POST /species` · `PATCH/DELETE /species/{id}` | Registry; add reference images. Status is a human note only |
+| Keep, extend | `GET/POST /species` · `PATCH/DELETE /species/{id}` | Species Registry; each species has `referenceCount` and `thumbnail` (first reference picture). Status is a human note only |
+| Done | `GET /species/{id}/references` · `POST /species/{id}/references` | A species' reference pictures, each with who/when and where it came from (`surveyId`, `surveySite`, `sourceFile`, `sourceTime`); add pictures from this computer |
+| Done | `DELETE /species/{id}/references/{refId}` | Remove one reference picture of that species (404 if it belongs to another); needs `X-TIDE-User` (on the people list); recorded in `reference_removals` |
+| Retire | `DELETE /references/{refId}` | Older removal route without a person or species check; kept working, but the app no longer uses it |
 | Change | `POST /analyses` | Start processing a survey: details + local file paths; extracts ZIPs, runs ingest → `Job` |
 | Keep, extend | `GET /analyses/{jobId}` · `POST /analyses/{jobId}/cancel` | Status, %, per-video pipeline step, errors |
 | Keep | `GET /surveys` · `GET/PATCH/DELETE /surveys/{id}` | Surveys (= batches) |
 | New | `GET /surveys/{id}/results` | Videos with per-point counts, MeanCount, richness; image counts |
 | Done (US-2.1) | `GET /surveys/{id}/videos` | Each video's proposed window, flags (`tooShort`, `settled`) and confirmed window |
 | Done (US-2.1) | `PATCH /videos/{id}` | Confirm analysis window (`windowStartS`, `windowEndS`); person from the `X-TIDE-User` header (URL-encoded, must be on the people list). Later: recording date, visibility |
+| Done | `POST /videos/{id}/count` · `POST /videos/{id}/count/stop` | Count a confirmed window again; stop counting (needs `X-TIDE-User`; nothing of a stopped count is saved). Counts interrupted by closing TIDE are marked `stopped` at start-up |
 | New | `PATCH /points/{id}` | Review edit; keeps the original AI value |
 | New | `GET /media/{fileId}` | Stream a video or image (HTTP range requests so the player can seek) |
 | New | `GET /points/{id}/clip` | The saved ±context clip for a point |
@@ -697,6 +753,11 @@ npm run dev            # opens TIDE and starts the backend from backend/.venv
 npm test               # Vitest
 npm run typecheck
 
+# Default reference pictures (already in the repo via Git LFS; only to check or change them)
+python -m tide.fetch_reference_images --verify  # check the pictures against their checksums
+python -m tide.fetch_reference_images --refresh # pick new photos (internet), then:
+python -m tide.fetch_reference_images --fingerprints  # needs the species model; commit all three
+
 # Benchmark
 python -m tide.benchmark --video <path to a local video>
 
@@ -749,6 +810,9 @@ Some team members are new to JavaScript. Optimize the app code for readability:
 - Draw detection boxes on a `<canvas>` layered over the `<video>` or `<img>`; never re-encode
   video in the app.
 - Ask before adding any new npm dependency, and check its licence.
+- Tests: plain Vitest for helpers and HTML rendered with `react-dom/server`. Tests that click, type
+  or press keys run in a simulated page: put `// @vitest-environment jsdom` at the top of the test
+  file (`jsdom` is a dev-only dependency, never shipped) and replace the backend with `vi.mock`.
 
 ## Open questions (do not guess; use config defaults until answered)
 

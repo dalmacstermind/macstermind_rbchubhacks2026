@@ -656,7 +656,7 @@ export function AddSpecies({
       {confirming ? (
         <p className="text-sm">
           <b>{form.common.trim()}</b>
-          {form.scientific.trim() && <i> ({form.scientific.trim()})</i>} will be added to the species list as{" "}
+          {form.scientific.trim() && <i> ({form.scientific.trim()})</i>} will be added to the Species Registry as{" "}
           {form.kind === "invertebrate" ? "an invertebrate" : "a fish"}, status <b>{form.status}</b>. Everyone using
           this computer will see it.
         </p>
