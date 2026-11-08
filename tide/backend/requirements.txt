@@ -8,8 +8,11 @@ PyYAML==6.0.3                      # config/*.yaml (MIT)
 # Vision pipeline (tide/detect.py, species.py, track.py). Exact versions tested together.
 # PyTorch's CUDA build also runs on CPU (CLAUDE.md, Packaging); it comes from the PyTorch index.
 --extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.7.1+cu118                 # inference runtime (BSD-3-Clause)
-torchvision==0.22.1+cu118          # (BSD-3-Clause)
+# macOS has no CUDA build: developers on a Mac get the same version's CPU build from PyPI.
+torch==2.7.1+cu118; sys_platform != "darwin"          # inference runtime (BSD-3-Clause)
+torchvision==0.22.1+cu118; sys_platform != "darwin"   # (BSD-3-Clause)
+torch==2.7.1; sys_platform == "darwin"
+torchvision==0.22.1; sys_platform == "darwin"
 rfdetr==1.12.0                     # runs the Community Fish Detector (Apache 2.0)
 open_clip_torch==4.2.1             # runs BioCLIP 2 (MIT)
 trackers==2.7.0                    # ByteTrack (Apache 2.0)

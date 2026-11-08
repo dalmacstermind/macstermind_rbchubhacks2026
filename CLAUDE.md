@@ -129,7 +129,7 @@ tide/
       ui.tsx                     shared UI pieces (Chip, Modal, Field, buttons…)
       pages.ts                   the Page type: which screen is showing (no URLs)
       speciesRegistry.ts         Species Registry helpers: sort, search, "New" badge, image count, picture source
-      components/                AppTopBar, ToolsSidebar, StepTabs (the app frame, see App frame),
+      components/                AppTopBar, ToolsSidebar, StepTabs (the app frame, see App frame), SurveyRow,
                                  VideoPlayer, PointTimeline, PointPanel, UnknownGallery,
                                  LabelCanvas, LabelPicker, NewSpeciesForm, TrendsChart…
                                  SpeciesGrid, SpeciesCard, SpeciesImagesDialog, ReferenceImageView,
@@ -140,7 +140,7 @@ tide/
                                  Splash + OceanScene: start-up animation shown until the back end is ready;
                                  ReefScene, SeaFloor, Critters, SurveyCamera: its "reef" look, used at start-up;
                                  the plainer "classic" look is still available via Splash's `variant`)
-      views/                     Upload, Processing, Results, ImageResults, Label, QC,
+      views/                     Upload, Processing, Results, ImageResults, Label, Surveys, QC,
                                  Trends, Species (the Species Registry), Settings, People
                                  (today: Report shows the protocol results; Label is the Label page)
     test/                        Vitest
@@ -202,9 +202,11 @@ Every screen after "Who's working?" has the same frame (`App.tsx`):
 
 ```
 ┌ Top bar: TIDE logo ··························· mode · ? Shortcuts · Light/Dark · person · Offline ┐
-├ Tools column ────┬ Step tabs: 1 New survey | 2 Counting | 3 Report | 4 Check the fish | 5 Label … ┤
-│ TOOLS            │                                                                               │
-│ Blind QC         │                         the current page                                      │
+├ Tools column ─────────┬ Step tabs: 1 Counting | 2 Report | 3 Check the fish | 4 Label unknown fish ┤
+│ [+ Start a new survey]│                                                                          │
+│ TOOLS                 │                                                                          │
+│ Surveys               │                                                                          │
+│ Blind QC              │                         the current page                                 │
 │ Trends           │                                                                               │
 │ Species Registry │                                                                               │
 │ Settings         │                                                                               │
@@ -214,13 +216,23 @@ Every screen after "Who's working?" has the same frame (`App.tsx`):
    right the model mode ("Demo mode · sample data", "GPU mode" or "CPU mode (slower)"),
    "? Shortcuts", the Light/Dark switch, who's working (click to switch person) and "Offline"
    (tooltip: nothing leaves this computer).
-2. **Tools column** (`components/ToolsSidebar.tsx`), a narrow column on the left under a **Tools**
-   heading: **Blind QC, Trends, Species Registry, Settings**. Locked while a survey is being counted.
-3. **Step tabs** (`components/StepTabs.tsx`), one horizontal row of five tabs above the page, in
-   this order: **New survey | Counting | Report | Check the fish | Label unknown fish**, numbered
-   1–5. "Check the fish" carries the badge of fish still to check or name. Counting is a progress
-   step and never clickable; Report, Check the fish and Label need an open survey; everything
-   except the current step is locked while a survey is being counted.
+2. **Tools column** (`components/ToolsSidebar.tsx`), a narrow column on the left. At the top, a
+   filled **Start a new survey** button (styled unlike the tools, because it starts something):
+   from any page it closes the open survey and shows a fresh Start page, as when the app opens,
+   so the step tabs are greyed out again. Below it, under a **Tools** heading: **Surveys, Blind QC,
+   Trends, Species Registry, Settings**. Everything in the column is locked while a survey is being
+   counted.
+   **Surveys** (`views/Surveys.tsx`) is the survey history, filtered **All** (default) / **Pending** /
+   **Completed**. A survey is Completed when nothing is left to count or check
+   (`isSurveyComplete` in `shared/survey.ts`): every analysis window confirmed, every video counted,
+   no possible fish below the certainty level left to confirm or dismiss, and no
+   "Unknown/Unable to ID due to visibility" fish left to label. Blind QC does not decide it.
+3. **Step tabs** (`components/StepTabs.tsx`), one horizontal row of four tabs above the page, in
+   this order: **Counting | Report | Check the fish | Label unknown fish**, numbered 1–4. Starting
+   a survey is not a step (see the Tools column). "Check the fish" carries the badge of fish still
+   to check or name. Counting is a progress step and never clickable; Report, Check the fish and
+   Label need an open survey; everything except the current step is locked while a survey is being
+   counted.
 4. **The current page** (`<main>`), to the right of the Tools column, scrolling on its own.
 
 Rules for the navigation:

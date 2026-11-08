@@ -1,9 +1,6 @@
-// Home: add footage, fill in the survey, count. Below: earlier surveys, unfinished ones first.
+// Start a new survey: add footage, fill in the survey details, count. Earlier surveys are in Tools → Surveys.
 import { useState } from "react";
 import type { AnalysisRequest, PickedFile, Sampling, SkippedFile } from "../../../shared/api";
-import type { OpenItem } from "../../../shared/survey";
-import { api } from "../api";
-import type { SurveyOverview } from "../overview";
 import {
   Chip,
   Disclosure,
@@ -16,13 +13,9 @@ import {
   formatBytes,
   plural,
   today,
-  useConfirm,
 } from "../ui";
 
 export type SurveyForm = Omit<AnalysisRequest, "files" | "person">;
-export type OpenTarget = "report" | Exclude<OpenItem["key"], "window" | "count">;
-
-const RECENT = 5; // surveys listed before "Show all"
 
 export function UploadView({
   files,
@@ -31,9 +24,6 @@ export function UploadView({
   setForm,
   error,
   onStart,
-  overview,
-  onOpen,
-  onDeleted,
 }: {
   files: PickedFile[];
   setFiles: (f: PickedFile[]) => void;
@@ -41,15 +31,10 @@ export function UploadView({
   setForm: (f: SurveyForm) => void;
   error: string | null;
   onStart: () => void;
-  overview: SurveyOverview[] | null;
-  onOpen: (surveyId: number, target: OpenTarget) => void;
-  onDeleted: () => void;
 }) {
   const [drag, setDrag] = useState(false);
-  const [showAll, setShowAll] = useState(false);
   const [skipped, setSkipped] = useState<SkippedFile[]>([]);
   const [triedToCount, setTriedToCount] = useState(false); // the red messages wait until someone tries
-  const [confirmNode, confirm] = useConfirm();
   const set = <K extends keyof SurveyForm>(k: K, v: SurveyForm[K]) => setForm({ ...form, [k]: v });
 
   const add = async (paths: string[]) => {
@@ -67,15 +52,10 @@ export function UploadView({
     setTriedToCount(true);
     if (!siteMissing && !dateMissing && !dateInFuture) onStart();
   };
-  // One list of earlier surveys: the ones that still need work come first, then the finished ones.
-  const withWork = (overview ?? []).filter((o) => o.open.length > 0);
-  const sorted = [...withWork, ...(overview ?? []).filter((o) => o.open.length === 0)];
-  const shown = showAll ? sorted : sorted.slice(0, RECENT);
 
   return (
     <>
-      {confirmNode}
-      <Header eyebrow="Step 1 of 4" title="Start a new survey" />
+      <Header title="Start a new survey" />
       <div className="grid grid-cols-1 gap-8 px-10 py-8 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           {error && (
@@ -163,39 +143,6 @@ export function UploadView({
                     ))}
                   </ul>
                 </Disclosure>
-              )}
-            </div>
-          )}
-
-          {sorted.length > 0 && (
-            <div>
-              <div className="mb-3 flex items-baseline justify-between gap-3">
-                <div className="font-display text-lg font-semibold">Your surveys</div>
-                <div className="text-xs text-muted-foreground">
-                  {withWork.length > 0 ? `${withWork.length} still need work · ` : ""}
-                  {plural(sorted.length, "survey")}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-border bg-card">
-                {shown.map((o) => (
-                  <SurveyRow
-                    key={o.data.survey.id}
-                    o={o}
-                    onOpen={onOpen}
-                    onDelete={() =>
-                      confirm(
-                        `Delete the survey “${o.data.survey.site}”? Its pictures and checks will be removed from this computer.`,
-                        "Delete",
-                        () => void api.surveys.remove(o.data.survey.id).then(onDeleted),
-                      )
-                    }
-                  />
-                ))}
-              </div>
-              {sorted.length > shown.length && (
-                <button className={`${btnLink} mt-2`} onClick={() => setShowAll(true)}>
-                  Show all {sorted.length} surveys
-                </button>
               )}
             </div>
           )}
@@ -315,52 +262,5 @@ function RequiredMessage({ text }: { text: string }) {
     <p role="alert" className="mt-1.5 text-sm text-destructive">
       {text}
     </p>
-  );
-}
-
-function SurveyRow({
-  o,
-  onOpen,
-  onDelete,
-}: {
-  o: SurveyOverview;
-  onOpen: (id: number, t: OpenTarget) => void;
-  onDelete?: () => void;
-}) {
-  const s = o.data.survey;
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3 last:border-0">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{s.site}</div>
-        <div className="text-xs text-muted-foreground">
-          {s.surveyDate ? `Filmed ${s.surveyDate}` : "No date filmed"} · {plural(s.frameCount, "picture")} ·{" "}
-          {s.videosToCount > 0 && o.summary.total === 0 ? "not counted yet" : `${o.summary.total} fish`}
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {o.open.length === 0 ? (
-          <Chip tone="done">All checked</Chip>
-        ) : (
-          o.open.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => onOpen(s.id, item.key === "window" || item.key === "count" ? "report" : item.key)}
-              className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
-              title="Go there"
-            >
-              <Chip tone="review">{item.text} →</Chip>
-            </button>
-          ))
-        )}
-        <button className={`${btnLink} ml-2`} onClick={() => onOpen(s.id, "report")}>
-          Open report
-        </button>
-        {onDelete && (
-          <button className="ml-2 text-sm text-muted-foreground hover:text-destructive" onClick={onDelete}>
-            Delete
-          </button>
-        )}
-      </div>
-    </div>
   );
 }

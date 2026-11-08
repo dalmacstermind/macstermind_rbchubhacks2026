@@ -5,7 +5,7 @@ import { summarize, type Detection, type Species } from "../../shared/survey";
 import { api } from "./api";
 import { taskbarProgress, useCounts } from "./counts";
 import { notifyDesktop } from "./notifications";
-import { qcState, useOverview } from "./overview";
+import { qcState, useOverview, type OpenTarget } from "./overview";
 import { usePrefs } from "./prefs";
 import { ShortcutsSheet, useKeys } from "./shortcuts";
 import { AppTopBar } from "./components/AppTopBar";
@@ -25,7 +25,8 @@ import { ReviewView } from "./views/Review";
 import { SettingsView, type LeaveGuard } from "./views/Settings";
 import { SpeciesView } from "./views/Species";
 import { TrendsView } from "./views/Trends";
-import { UploadView, type OpenTarget, type SurveyForm } from "./views/Upload";
+import { SurveysView } from "./views/Surveys";
+import { UploadView, type SurveyForm } from "./views/Upload";
 
 // Stands in for the person while "Who's working?" is open (see `locked` below).
 const NOBODY: Person = { name: "", role: "" };
@@ -91,7 +92,7 @@ export default function App() {
 
   const go = (p: Page) => {
     const open = () => {
-      if (p === "upload" || p === "qc") void reloadOverview();
+      if (p === "surveys" || p === "qc") void reloadOverview();
       if (p === "report" && data) void api.qc.get(data.survey.id).then(setQcRaw);
       if (p === "qc") setQcSurvey(null);
       setPage(p);
@@ -100,18 +101,21 @@ export default function App() {
     else leaveSettings(open);
   };
 
-  // Start fresh, like when the app first opens: close the current survey so steps 2–5 are greyed out
-  // again, and clear the form. The closed survey stays saved and can be reopened from "Your surveys".
-  const newSurvey = () => {
-    setData(null);
-    setQcRaw(null);
-    setFinished(null);
-    setReviewMode("all");
-    setError(null);
-    setFiles([]);
-    setForm({ ...form, site: "", surveyDate: "" });
-    go("upload");
-  };
+  // "Start a new survey" (top of the Tools column, and the finished-survey card on the Report): start
+  // fresh, like when the app first opens. Closing the current survey greys out the step tabs again, and
+  // the form is cleared. The closed survey stays saved and can be reopened from Tools → Surveys.
+  // Leaving Settings with unsaved changes asks first; nothing is cleared unless the person goes on.
+  const newSurvey = () =>
+    leaveSettings(() => {
+      setData(null);
+      setQcRaw(null);
+      setFinished(null);
+      setReviewMode("all");
+      setError(null);
+      setFiles([]);
+      setForm({ ...form, site: "", surveyDate: "" });
+      setPage("upload");
+    });
 
   const openSurvey = useCallback(async (id: number, target: OpenTarget = "report") => {
     const [d, q] = await Promise.all([api.surveys.get(id), api.qc.get(id)]);
@@ -235,7 +239,7 @@ export default function App() {
           onShortcuts={() => setShortcuts(true)}
         />
         <div className="flex min-h-0 flex-1">
-          <ToolsSidebar page={page} go={go} busy={busy} />
+          <ToolsSidebar page={page} go={go} onNewSurvey={newSurvey} busy={busy} />
           <div className="flex min-w-0 flex-1 flex-col">
             <StepTabs
               page={page}
@@ -254,9 +258,21 @@ export default function App() {
                   setForm={setForm}
                   error={error}
                   onStart={start}
+                />
+              )}
+              {page === "surveys" && (
+                <SurveysView
                   overview={overview}
                   onOpen={(id, t) => void openSurvey(id, t)}
-                  onDeleted={() => void reloadOverview()}
+                  onDeleted={(id) => {
+                    // Deleting the survey that's open closes it, so the step tabs don't point at it.
+                    if (data?.survey.id === id) {
+                      setData(null);
+                      setQcRaw(null);
+                      setFinished(null);
+                    }
+                    void reloadOverview();
+                  }}
                 />
               )}
               {page === "processing" && (

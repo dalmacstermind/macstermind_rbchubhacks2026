@@ -57,7 +57,7 @@ export function ProcessingView({
 
   return (
     <>
-      <Header eyebrow="Step 2 of 4" title="Checking your files…" />
+      <Header eyebrow="Step 1 of 4" title="Checking your files…" />
       <div className="mx-auto max-w-2xl px-10 py-14">
         <div className="relative mx-auto mb-10 h-40 w-40">
           <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20" />

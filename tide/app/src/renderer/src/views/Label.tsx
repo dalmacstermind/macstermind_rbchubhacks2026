@@ -154,7 +154,7 @@ export function LabelView({
           }}
         />
       )}
-      <Header eyebrow={`Step 5 · ${data.survey.site}`} title="Label unknown fish">
+      <Header eyebrow={`Step 4 of 4 · ${data.survey.site}`} title="Label unknown fish">
         <span className="text-sm text-muted-foreground">
           {unknowns ? `${unknowns.remaining} still to label` : "Loading…"}
           {file && unknowns ? ` · ${unknowns.remainingByFile[file] ?? 0} in this file` : ""}
@@ -164,7 +164,7 @@ export function LabelView({
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <select className="input w-auto py-1.5" value={show} onChange={(e) => changeShow(e.target.value as Show)}>
-              <option value="todo">Still to label</option>
+              <option value="todo">Unlabeled</option>
               <option value="labelled">Labelled</option>
               <option value="all">All</option>
             </select>

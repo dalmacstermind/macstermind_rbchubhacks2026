@@ -1,5 +1,5 @@
 // Loads every finished survey with its summary and blind-QC progress.
-// Used by the home screen ("Your surveys") and Blind QC.
+// Used by the Surveys page (Tools → Surveys) and Blind QC.
 import { useCallback, useEffect, useState } from "react";
 import type { QcData, SurveyData } from "../../shared/api";
 import {
@@ -39,6 +39,9 @@ export function qcState(data: SurveyData, qc: QcData, species: Species[]): QcSta
   const done = latest.size;
   return { total: qc.sample.length, done, agreement: done ? (agree / done) * 100 : null, target: qcAgreementPct };
 }
+
+/** Where a survey row can take you: the report, or straight to what's still open there. */
+export type OpenTarget = "report" | Exclude<OpenItem["key"], "window" | "count">;
 
 export type SurveyOverview = { data: SurveyData; summary: Summary; qc: QcState; open: OpenItem[] };
 

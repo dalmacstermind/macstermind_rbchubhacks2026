@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { StepTabs } from "../src/renderer/src/components/StepTabs";
 import type { Page } from "../src/renderer/src/pages";
 
-const ORDER = ["New survey", "Counting", "Report", "Check the fish", "Label unknown fish"];
+// "Start a new survey" is not a step: it's the button at the top of the Tools column.
+const ORDER = ["Counting", "Report", "Check the fish", "Label unknown fish"];
 
 function render(page: Page, opts: { busy?: boolean; hasSurvey?: boolean; toCheck?: number } = {}) {
   const html = renderToStaticMarkup(
@@ -29,15 +30,15 @@ function render(page: Page, opts: { busy?: boolean; hasSurvey?: boolean; toCheck
 }
 
 describe("step tabs", () => {
-  it("shows the five tabs in order", () => {
-    const { buttons } = render("upload");
+  it("shows the four tabs in order", () => {
+    const { buttons } = render("report");
     expect(buttons.map((b) => b.text)).toEqual(ORDER);
   });
 
   it("marks only the current tab with aria-current=page", () => {
     for (const [page, label] of [
-      ["upload", "New survey"],
       ["report", "Report"],
+      ["review", "Check the fish"],
       ["label", "Label unknown fish"],
     ] as const) {
       const current = render(page).buttons.filter((b) => b.attrs.includes('aria-current="page"'));
@@ -45,8 +46,9 @@ describe("step tabs", () => {
     }
   });
 
-  it("no tab is current on a tools page (e.g. Settings)", () => {
+  it("no tab is current on a tools page (e.g. Settings) or the Start a new survey page", () => {
     expect(render("settings").html).not.toContain("aria-current");
+    expect(render("upload").html).not.toContain("aria-current");
   });
 
   it("is a labelled navigation landmark", () => {
@@ -56,7 +58,7 @@ describe("step tabs", () => {
   it("keeps the badge on Check the fish", () => {
     const { buttons } = render("report", { toCheck: 3 });
     expect(buttons.find((b) => b.text.startsWith("Check the fish"))!.text).toBe("Check the fish3");
-    expect(render("report", { toCheck: 0 }).buttons[3]!.text).toBe("Check the fish");
+    expect(render("report", { toCheck: 0 }).buttons[2]!.text).toBe("Check the fish");
   });
 
   it("locks the steps that can't be used yet", () => {
@@ -64,9 +66,9 @@ describe("step tabs", () => {
       render(page, opts)
         .buttons.filter((b) => !b.attrs.includes('disabled=""')) // the attribute, not the "disabled:" CSS class
         .map((b) => b.text);
-    expect(enabled("upload", { hasSurvey: false })).toEqual(["New survey"]);
+    // A fresh start (no survey open): every step is greyed out.
+    expect(enabled("upload", { hasSurvey: false })).toEqual([]);
     expect(enabled("report", { hasSurvey: true })).toEqual([
-      "New survey",
       "Report",
       "Check the fish",
       "Label unknown fish",
