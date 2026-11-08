@@ -16,6 +16,7 @@ const desktop: DesktopApi = {
   savePdf: (name) => ipcRenderer.invoke("export:pdf", name),
   setProgress: (fraction) => ipcRenderer.send("taskbar:progress", fraction),
   setCounting: (videos) => ipcRenderer.send("counting:set", videos),
+  focusWindow: () => ipcRenderer.send("window:focus"),
   openPath: (path) => ipcRenderer.send("shell:open", path),
 };
 

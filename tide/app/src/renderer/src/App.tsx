@@ -1,9 +1,10 @@
 // The app shell: sidebar, who's working, theme, and which screen is showing.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileStatus, ModelStatus, Person, PickedFile, QcData, SurveyData } from "../../shared/api";
 import { summarize, type Detection, type Species } from "../../shared/survey";
 import { api } from "./api";
 import { useCounts } from "./counts";
+import { notifyDesktop } from "./notifications";
 import { qcState, useOverview } from "./overview";
 import { usePrefs } from "./prefs";
 import { ShortcutsSheet, useKeys } from "./shortcuts";
@@ -54,7 +55,7 @@ export default function App() {
   const [qcSurvey, setQcSurvey] = useState<number | null>(null);
   const [shortcuts, setShortcuts] = useState(false);
   const [overview, reloadOverview] = useOverview(species);
-  const counts = useCounts(prefs.notify);
+  const counts = useCounts(prefs.notify, (id) => openFromNotification(id));
 
   useEffect(() => {
     void api.species.list().then(setSpecies);
@@ -115,6 +116,15 @@ export default function App() {
     }
     return d;
   }, []);
+
+  // Clicking a desktop notification opens its survey. While files are being checked the other screens
+  // are locked, so then the click only brings TIDE forward. A survey deleted since then just doesn't open.
+  const pageNow = useRef(page);
+  pageNow.current = page;
+  const openFromNotification = (id: number) => {
+    if (pageNow.current !== "processing") openSurvey(id).catch(() => undefined);
+  };
+
   const start = async () => {
     if (!person) return;
     setError(null);
@@ -128,11 +138,13 @@ export default function App() {
       if (prefs.notify) {
         const failed = r.files.filter((f) => f.state === "failed").length;
         const windows = opened.survey.windowsToConfirm;
-        new Notification(windows ? "TIDE: waiting for you" : "TIDE: files processed", {
-          body: windows
+        notifyDesktop(
+          windows ? "TIDE: waiting for you" : "TIDE: files processed",
+          windows
             ? `${form.site || "Your survey"}: confirm the analysis window of ${plural(windows, "video")} so TIDE can count the fish.`
             : `${form.site || "Your survey"} is ready${failed ? ` · ${plural(failed, "file")} couldn't be read` : ""}.`,
-        });
+          () => openFromNotification(r.surveyId),
+        );
       }
     } catch (e) {
       const msg = (e as Error).message;

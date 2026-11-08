@@ -145,12 +145,17 @@ function createWindow() {
   else void win.loadFile(join(__dirname, "../renderer/index.html"));
 }
 
+function bringWindowForward() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.moveTop();
+  win.focus();
+}
+
 // Only one copy of TIDE at a time (two would fight over the database).
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on("second-instance", () => {
-  if (win?.isMinimized()) win.restore();
-  win?.focus();
-});
+app.on("second-instance", bringWindowForward);
 
 app.setAppUserModelId("org.tide.app"); // needed for Windows notifications
 // Fully offline: no background calls home from Chromium.
@@ -221,6 +226,7 @@ function registerIpc() {
 
   ipcMain.on("taskbar:progress", (_e, fraction: number | null) => win?.setProgressBar(fraction ?? -1));
   ipcMain.on("counting:set", (_e, videos: number) => (countingVideos = videos));
+  ipcMain.on("window:focus", bringWindowForward);
   ipcMain.on("shell:open", (_e, path: string) => void shell.openPath(path));
 
   ipcMain.handle("export:pdf", async (e, name: string) => {
