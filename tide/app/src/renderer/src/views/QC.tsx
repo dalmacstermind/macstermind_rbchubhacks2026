@@ -38,9 +38,9 @@ export function QcView({
       <Header eyebrow="Tools" title="Blind quality check" />
       <div className="max-w-4xl space-y-4 px-10 py-8">
         <p className="text-sm text-muted-foreground">
-          An independent reviewer recounts a random sample of images from each survey without access to TIDE's
-          detection boxes or counts. The sample size, acceptable difference, and agreement target must match the
-          protocol settings used when processing the survey (Settings → Protocol Settings).
+          An independent reviewer recounts a random sample of images from each survey without access to TIDE's detection
+          boxes or counts. The sample size, acceptable difference, and agreement target must match the protocol settings
+          used when processing the survey (Settings → Protocol Settings).
         </p>
         {!overview ? (
           <p className="text-muted-foreground">Loading…</p>
@@ -50,7 +50,9 @@ export function QcView({
           <div className="rounded-2xl border border-border bg-card">
             {overview.map((o) => {
               const { qc } = o;
-              const done = qc.done >= qc.total;
+              // A survey with no pictures yet (its videos aren't counted) has nothing to recount: not a failed check.
+              const nothingToCheck = qc.total === 0;
+              const done = !nothingToCheck && qc.done >= qc.total;
               return (
                 <div
                   key={o.data.survey.id}
@@ -59,12 +61,16 @@ export function QcView({
                   <div>
                     <div className="font-medium">{o.data.survey.site}</div>
                     <div className="text-xs text-muted-foreground">
-                      {qc.done} of {plural(qc.total, "sample picture")} recounted
+                      {nothingToCheck
+                        ? "No pictures to recount until this survey is counted"
+                        : `${qc.done} of ${plural(qc.total, "sample picture")} recounted`}
                       {qc.agreement !== null && ` · agreement ${Math.round(qc.agreement)}%`}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {done ? (
+                    {nothingToCheck ? (
+                      <Chip tone="waiting">Nothing to check yet</Chip>
+                    ) : done ? (
                       qc.agreement !== null && qc.agreement >= qc.target ? (
                         <Chip tone="done">Meets target</Chip>
                       ) : (
@@ -75,9 +81,11 @@ export function QcView({
                     ) : (
                       <Chip tone="waiting">Not started</Chip>
                     )}
-                    <button className={done ? btnGhost : btnPrimary} onClick={() => setSurveyId(o.data.survey.id)}>
-                      {done ? "Review" : qc.done ? "Continue" : "Start"}
-                    </button>
+                    {!nothingToCheck && (
+                      <button className={done ? btnGhost : btnPrimary} onClick={() => setSurveyId(o.data.survey.id)}>
+                        {done ? "Review" : qc.done ? "Continue" : "Start"}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -203,9 +211,7 @@ function QcCounting({
             >
               {state.agreement !== null && state.agreement >= target
                 ? "This survey meets the quality target."
-                : "Below target. Pictures more than " +
-                  maxDiff +
-                  "% apart should be recounted by another person."}
+                : "Below target. Pictures more than " + maxDiff + "% apart should be recounted by another person."}
             </Alert>
             <button className={btnPrimary} onClick={onBack}>
               Done
@@ -263,12 +269,7 @@ function QcCounting({
                   )}
                 </div>
                 {result && (
-                  <QcResult
-                    result={result}
-                    maxDiff={maxDiff}
-                    onNext={next}
-                    last={idx + 1 >= qc.sample.length}
-                  />
+                  <QcResult result={result} maxDiff={maxDiff} onNext={next} last={idx + 1 >= qc.sample.length} />
                 )}
               </div>
             </div>
