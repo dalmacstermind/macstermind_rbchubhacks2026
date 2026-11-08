@@ -2,9 +2,22 @@
 import { useEffect, useRef, useState } from "react";
 import { btnPrimary } from "../ui";
 
-export function ExportMenu({ onExcel, onPdf }: { onExcel: () => void; onPdf: () => void }) {
+export function ExportMenu({
+  onExcel,
+  onPdf,
+  disabled = false,
+}: {
+  onExcel: () => void;
+  onPdf: () => void;
+  disabled?: boolean; // true while fish are being counted: the results aren't final yet
+}) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+
+  // If counting starts while the menu is open, close it.
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   // While the menu is open, close it on Esc or on a click anywhere outside it.
   useEffect(() => {
@@ -32,7 +45,14 @@ export function ExportMenu({ onExcel, onPdf }: { onExcel: () => void; onPdf: () 
 
   return (
     <div ref={box} className="relative">
-      <button onClick={() => setOpen(!open)} className={btnPrimary} aria-haspopup="menu" aria-expanded={open}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`${btnPrimary} disabled:cursor-not-allowed disabled:opacity-50`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        title={disabled ? "You can export once the fish have been counted." : undefined}
+      >
         Export <span aria-hidden>▾</span>
       </button>
       {open && (
