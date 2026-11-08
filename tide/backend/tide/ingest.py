@@ -1,8 +1,9 @@
 """Read Transect, STAT and recording date from a file's path (CLAUDE.md, Adding media).
 
 Coastal Action's folders look like `Fall 2025/August 20_2025/T1/STAT 1/GX010021.MP4`, and file
-names often carry the same information (`...-T1-STAT2 411.MP4`). Nothing is guessed: when a value
-can't be read, it stays None and staff can fill it in.
+names often carry Transect and STAT too (`...-T1-STAT2 411.MP4`). Dates come from folders only: a date in
+a file name is often when a clip was saved or exported. Nothing is guessed: when a value can't be read,
+it stays None and staff can fill it in.
 """
 from __future__ import annotations
 
@@ -31,17 +32,27 @@ def transect_stat(path: str) -> tuple[str | None, str | None]:
     return transect, stat
 
 
+def date_in_text(text: str) -> date | None:
+    """The first date written in `text` (`2025-08-20` or `August 20_2025`), or None."""
+    if m := _ISO.search(text):
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    if (m := _MONTH_DAY_YEAR.search(text)) and m.group(1).lower() in _MONTHS:
+        try:
+            return date(int(m.group(3)), _MONTHS[m.group(1).lower()], int(m.group(2)))
+        except ValueError:
+            pass
+    return None
+
+
 def recorded_date(path: str) -> date | None:
-    """The recording date from a folder like `August 20_2025` or `2025-08-20`; None if there is none."""
-    for part in reversed(PurePath(path.replace("\\", "/")).parts):
-        if m := _ISO.search(part):
-            try:
-                return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            except ValueError:
-                continue
-        if (m := _MONTH_DAY_YEAR.search(part)) and m.group(1).lower() in _MONTHS:
-            try:
-                return date(int(m.group(3)), _MONTHS[m.group(1).lower()], int(m.group(2)))
-            except ValueError:
-                continue
+    """The recording date from a folder like `August 20_2025` or `2025-08-20`; None if there is none.
+
+    Never from the file name itself (see the module docstring).
+    """
+    for part in reversed(PurePath(path.replace("\\", "/")).parts[:-1]):
+        if found := date_in_text(part):
+            return found
     return None

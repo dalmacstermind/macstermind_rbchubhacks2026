@@ -158,6 +158,21 @@ export const api: TideApi = {
     videos: (id) => http<Video[]>("GET", `/surveys/${id}/videos`),
   },
 
+  trends: {
+    get: (q) =>
+      http(
+        "GET",
+        `/trends?${new URLSearchParams({
+          transect: q.transect,
+          stat: q.stat,
+          from: q.from,
+          to: q.to,
+          reviewedOnly: String(q.reviewedOnly),
+          groupBySurvey: String(q.groupBySurvey),
+        })}`,
+      ),
+  },
+
   counts: { list: () => http("GET", "/counts") },
 
   videos: {

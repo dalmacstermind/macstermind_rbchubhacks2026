@@ -17,11 +17,12 @@ from tide.detect import box_iou
 from tide.evaluate import HumanCount, compare, read_human_csv
 from tide.labels import UNKNOWN_ID, check_label, effective_labels, mirror_species_id
 from tide.species import NOVEL, UNKNOWN
+from tide.trends import TrendFilters, TrendVideo, build_trends
 
 from .db import Database
 from .settings import survey_protocol
 from .schemas import (AiPointCount, Box, EvaluationOut, ImageOut, LabelOut, PointOut, Suggestion, SurveyResults,
-                      UnknownFish, Unknowns, UnknownSource, VideoOut)
+                      TrendsOut, UnknownFish, Unknowns, UnknownSource, VideoOut)
 
 
 def _registry(db: Database) -> dict[str, str]:
@@ -32,19 +33,24 @@ def _labels(db: Database, survey_id: int, registry: dict[str, str]):
     return effective_labels(db.survey_detections(survey_id), db.active_labels(survey_id), registry)
 
 
-def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResults:
-    protocol = survey_protocol(db, survey_id)  # the values this survey was processed with, not today's settings
+def _video_summaries(db: Database, survey_id: int, threshold: float, protocol, labels):
+    """Each video's database row with its results, recalculated from the stored rows."""
     vision = load_vision_config()
-    clarity_cfg = vision.clarity
-    registry = _registry(db)
-    labels = _labels(db, survey_id, registry)
-    remaining = unknowns(db, survey_id).remaining_by_file
-    videos = []
+    out = []
     for v in db.video_rows(survey_id):
         points = db.points(v["id"])
         frames = {p["point_no"]: db.point_frames(v["id"], p["point_no"]) for p in points}
-        s = av_results.video_summary(v, points, db.video_sightings(v["id"]), frames, labels, threshold, protocol,
-                                     clarity_cfg, vision.stationary)
+        out.append((v, av_results.video_summary(v, points, db.video_sightings(v["id"]), frames, labels, threshold,
+                                                protocol, vision.clarity, vision.stationary)))
+    return out
+
+
+def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResults:
+    protocol = survey_protocol(db, survey_id)  # the values this survey was processed with, not today's settings
+    labels = _labels(db, survey_id, _registry(db))
+    remaining = unknowns(db, survey_id).remaining_by_file
+    videos = []
+    for v, s in _video_summaries(db, survey_id, threshold, protocol, labels):
         videos.append(VideoOut(
             id=s.id, name=s.name, recorded_at=s.recorded_at, transect=s.transect, stat=s.stat,
             window_start_s=s.window_start_s, window_end_s=s.window_end_s, proposed_start_s=s.proposed_start_s,
@@ -68,6 +74,19 @@ def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResul
     images = [ImageOut(**asdict(c)) for c in av_results.image_counts(db.photo_sightings(survey_id), labels, threshold)]
     return SurveyResults(videos=videos, images=images, unknowns_remaining=sum(remaining.values()),
                          visibility_categories=list(protocol.visibility_categories))
+
+
+# ── Trends ──
+
+def trends(db: Database, filters: TrendFilters, group_by_survey: bool) -> TrendsOut:
+    """One point per counted video across every survey, each judged by its own survey's protocol values."""
+    registry = _registry(db)
+    videos = []
+    for info in db.list_surveys():
+        summaries = _video_summaries(db, info.id, info.threshold, survey_protocol(db, info.id),
+                                     _labels(db, info.id, registry))
+        videos += [TrendVideo(info.id, info.site, info.survey_date, s) for _, s in summaries]
+    return TrendsOut(**asdict(build_trends(videos, filters, group_by_survey)))
 
 
 # ── Label gallery ──
