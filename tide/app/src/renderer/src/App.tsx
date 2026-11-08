@@ -9,6 +9,7 @@ import { qcState, useOverview } from "./overview";
 import { usePrefs } from "./prefs";
 import { ShortcutsSheet, useKeys } from "./shortcuts";
 import { AppTopBar } from "./components/AppTopBar";
+import { ConfirmWindowsDialog } from "./components/ConfirmWindowsDialog";
 import { CountingBanner } from "./components/CountingBanner";
 import { StepTabs } from "./components/StepTabs";
 import { ToolsSidebar } from "./components/ToolsSidebar";
@@ -53,6 +54,8 @@ export default function App() {
   const [finished, setFinished] = useState<FileStatus[] | null>(null);
   const [reviewMode, setReviewMode] = useState<ReviewMode>("all");
   const [focusVideo, setFocusVideo] = useState<number | null>(null); // a video to scroll to on the report
+  const [confirmingSurvey, setConfirmingSurvey] = useState<number | null>(null); // asking for its analysis windows
+  const [reportVersion, setReportVersion] = useState(0); // goes up to load the report afresh
   const [qcSurvey, setQcSurvey] = useState<number | null>(null);
   const [shortcuts, setShortcuts] = useState(false);
   const [overview, reloadOverview] = useOverview(species);
@@ -62,7 +65,7 @@ export default function App() {
     void api.species.list().then(setSpecies);
     void api.model.status().then(setModel);
   }, []);
-  useKeys({ "?": () => setShortcuts(true) }, !!person);
+  useKeys({ "?": () => setShortcuts(true) }, !!person && confirmingSurvey === null);
 
   // When a video of the open survey changes state (confirmed, counting, finished…), load the survey
   // again so "not counted yet" and the pictures are right on every screen, not only the Report.
@@ -118,12 +121,21 @@ export default function App() {
     return d;
   }, []);
 
-  // Clicking a desktop notification opens its survey. While files are being checked the other screens
-  // are locked, so then the click only brings TIDE forward. A survey deleted since then just doesn't open.
-  const pageNow = useRef(page);
-  pageNow.current = page;
+  // Clicking a desktop notification opens its survey. While files are being checked or windows are
+  // being confirmed the other screens are locked, so then the click only brings TIDE forward.
+  // A survey deleted since then just doesn't open.
+  const screensLocked = useRef(false);
+  screensLocked.current = page === "processing" || confirmingSurvey !== null;
   const openFromNotification = (id: number) => {
-    if (pageNow.current !== "processing") openSurvey(id).catch(() => undefined);
+    if (!screensLocked.current) openSurvey(id).catch(() => undefined);
+  };
+
+  // The windows dialog is done: unlock, and show what it changed straight away.
+  const finishConfirming = () => {
+    const id = confirmingSurvey;
+    setConfirmingSurvey(null);
+    setReportVersion((n) => n + 1);
+    if (id !== null) void api.surveys.get(id).then((fresh) => setData((d) => (d?.survey.id === id ? fresh : d)));
   };
 
   const start = async () => {
@@ -136,6 +148,7 @@ export default function App() {
       setForm({ ...form, site: "", surveyDate: "" });
       const opened = await openSurvey(r.surveyId);
       setFinished(r.files);
+      if (opened.survey.windowsToConfirm) setConfirmingSurvey(r.surveyId);
       if (prefs.notify) {
         const failed = r.files.filter((f) => f.state === "failed").length;
         const windows = opened.survey.windowsToConfirm;
@@ -176,10 +189,10 @@ export default function App() {
     [person],
   );
 
-  // Until someone picks their name, the app is shown blurred behind the "Who's working?" dialog and
+  // Until someone picks their name, and while windows are being confirmed, the app is shown blurred behind a dialog and
   // can't be clicked, focused or used with the keyboard (`inert`). `who` fills in for the person so the
   // page behind can still be drawn; nothing can be saved under it because nothing behind can be used.
-  const locked = !person;
+  const locked = !person || confirmingSurvey !== null;
   const who = person ?? NOBODY;
 
   const busy = page === "processing";
@@ -268,6 +281,7 @@ export default function App() {
                     </div>
                   )}
                   <ReportView
+                    key={reportVersion}
                     data={data}
                     summary={summary}
                     species={species}
@@ -340,7 +354,10 @@ export default function App() {
           </div>
         </div>
       </div>
-      {locked && <WhoIsWorking onPick={setPerson} />}
+      {!person && <WhoIsWorking onPick={setPerson} />}
+      {person && confirmingSurvey !== null && (
+        <ConfirmWindowsDialog surveyId={confirmingSurvey} person={person} onFinished={finishConfirming} />
+      )}
     </>
   );
 }

@@ -8,7 +8,7 @@ import { Chip, btnPrimary } from "../ui";
 import { CountProgress } from "./CountProgress";
 import { CountControls } from "./CountControls";
 
-const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+export const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
 export function WindowConfirm({
   video: v,
