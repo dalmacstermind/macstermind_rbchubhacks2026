@@ -1,6 +1,6 @@
-# Builds the Windows installer on GitHub's Windows machines, so you can develop on a Mac.
+# Builds TIDE for Windows on GitHub's Windows machines, so you can develop on a Mac.
 # Push to GitHub → Actions tab → "Build Windows installer" → Run workflow,
-# then download TIDE-Setup-x.y.z.exe from the finished run's "Artifacts".
+# then download TIDE-x.y.z-win-x64.zip from the finished run's "Artifacts".
 name: Build Windows installer
 on:
   workflow_dispatch:
@@ -29,13 +29,13 @@ jobs:
           python -m pytest -q
           pyinstaller tide-api.spec --noconfirm
 
-      # 2. App + installer (bundles the back end from step 1)
+      # 2. App, zipped (bundles the back end from step 1)
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: tide/app/package-lock.json
-      - name: Build app and installer
+      - name: Build app and zip
         working-directory: tide/app
         run: |
           npm ci
@@ -44,5 +44,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: TIDE-Windows-installer
-          path: tide/app/release/*.exe
+          name: TIDE-Windows
+          path: tide/app/release/*.zip
+          compression-level: 0 # already a zip: don't compress it again
+          if-no-files-found: error
