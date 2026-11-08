@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Person, SurveyData } from "../../../shared/api";
 import {
   UNKNOWN,
+  isSurveyComplete,
   openItems,
   type OpenItem,
   type Species,
@@ -118,13 +119,10 @@ export function ReportView({
         />
       )}
       {editing && <EditSurvey data={data} onClose={() => setEditing(false)} onSaved={onChanged} />}
-      <Header eyebrow={`Step 3 of 4 · ${survey.site}`} title="Survey report">
+      <Header eyebrow={`Step 2 of 4 · ${survey.site}`} title="Survey report">
         <MatchAgainButton surveyId={survey.id} onDone={onChanged} />
         <button onClick={() => onReview("all")} className={btnGhost}>
           Check the fish
-        </button>
-        <button onClick={onNewSurvey} className={btnGhost}>
-          + New survey
         </button>
         <ExportMenu
           onExcel={() => (open.length ? setChecking(true) : void exportXlsx())}
@@ -142,7 +140,7 @@ export function ReportView({
             </button>
           </div>
         )}
-        {open.length === 0 && <SurveyDoneCard exported={!!saved} onNewSurvey={onNewSurvey} />}
+        {isSurveyComplete(open) && <SurveyDoneCard exported={!!saved} onNewSurvey={onNewSurvey} />}
         {s.toReview > 0 && (
           <Alert
             tone="warning"

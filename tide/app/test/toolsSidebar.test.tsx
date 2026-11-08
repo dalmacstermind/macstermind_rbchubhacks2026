@@ -6,7 +6,7 @@ import { ToolsSidebar } from "../src/renderer/src/components/ToolsSidebar";
 import type { Page } from "../src/renderer/src/pages";
 
 function render(page: Page, busy = false) {
-  const html = renderToStaticMarkup(<ToolsSidebar page={page} go={() => {}} busy={busy} />);
+  const html = renderToStaticMarkup(<ToolsSidebar page={page} go={() => {}} onNewSurvey={() => {}} busy={busy} />);
   const buttons = [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)].map(([, attrs, inner]) => ({
     attrs: attrs!,
     text: inner!
@@ -18,11 +18,23 @@ function render(page: Page, busy = false) {
 }
 
 describe("tools column", () => {
-  it("shows the Tools heading and the four tools in order", () => {
-    const { html, buttons } = render("upload");
+  it("shows Start a new survey above the Tools heading, then the five tools in order", () => {
+    const { html, buttons } = render("settings");
     expect(html).toContain('<nav aria-label="Tools"');
-    expect(html).toContain(">Tools<");
-    expect(buttons.map((b) => b.text)).toEqual(["Blind QC", "Trends", "Species Registry", "Settings"]);
+    expect(html.indexOf("Start a new survey")).toBeLessThan(html.indexOf(">Tools<"));
+    expect(buttons.map((b) => b.text)).toEqual([
+      "Start a new survey",
+      "Surveys",
+      "Blind QC",
+      "Trends",
+      "Species Registry",
+      "Settings",
+    ]);
+  });
+
+  it("marks Start a new survey as current on the Start page", () => {
+    const current = render("upload").buttons.filter((b) => b.attrs.includes('aria-current="page"'));
+    expect(current.map((b) => b.text)).toEqual(["Start a new survey"]);
   });
 
   it("marks only the current tool with aria-current=page", () => {

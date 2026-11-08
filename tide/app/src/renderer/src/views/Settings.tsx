@@ -1,5 +1,5 @@
 // Settings: protocol settings (window, points, blind QC), people, and disk space.
-// Per-survey choices (certainty, sampling, clear-up, specks) are made on the New survey page.
+// Per-survey choices (certainty, sampling, clear-up, specks) are made on the Start a new survey page.
 import { useEffect, useState, type MutableRefObject, type ReactNode } from "react";
 import type { Person, Storage } from "../../../shared/api";
 import { api } from "../api";

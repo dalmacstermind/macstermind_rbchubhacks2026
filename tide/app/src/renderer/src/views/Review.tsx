@@ -125,7 +125,7 @@ export function ReviewView({
   if (!frame) {
     return (
       <>
-        <Header eyebrow="Step 4 of 4" title="Check the fish">
+        <Header eyebrow="Step 3 of 4" title="Check the fish">
           <button onClick={onBack} className={btnPrimary}>
             Back to report
           </button>
@@ -168,7 +168,7 @@ export function ReviewView({
           }}
         />
       )}
-      <Header eyebrow="Step 4 of 4" title="Check the fish">
+      <Header eyebrow="Step 3 of 4" title="Check the fish">
         <div className="mr-4 text-sm text-muted-foreground">
           Fish counted: <span className="font-display text-lg font-semibold text-foreground">{total}</span>
           {toReview > 0 && (

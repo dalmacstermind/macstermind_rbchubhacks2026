@@ -33,9 +33,6 @@ const show = (f: SurveyForm) =>
         setForm={() => undefined}
         error={null}
         onStart={onStart}
-        overview={null}
-        onOpen={() => undefined}
-        onDeleted={() => undefined}
       />,
     ),
   );
