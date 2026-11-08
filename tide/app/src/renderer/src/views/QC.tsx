@@ -38,9 +38,9 @@ export function QcView({
       <Header eyebrow="Tools" title="Blind quality check" />
       <div className="max-w-4xl space-y-4 px-10 py-8">
         <p className="text-sm text-muted-foreground">
-          A second person recounts a random sample of each survey's pictures without seeing TIDE's boxes or
-          counts. The sample size, the allowed difference and the agreement target are the protocol values the
-          survey was processed with (Settings → Protocol settings).
+          An independent reviewer recounts a random sample of images from each survey without access to TIDE's
+          detection boxes or counts. The sample size, acceptable difference, and agreement target must match the
+          protocol settings used when processing the survey (Settings → Protocol Settings).
         </p>
         {!overview ? (
           <p className="text-muted-foreground">Loading…</p>
