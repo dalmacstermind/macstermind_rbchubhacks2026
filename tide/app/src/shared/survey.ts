@@ -22,6 +22,8 @@ export type Species = {
   addedAt?: string;
   /** Reference pictures the species model compares fish with (0 = it can't suggest this species). */
   referenceCount?: number;
+  /** The first reference picture (full URL), shown on the Species Registry card; null if none. */
+  thumbnail?: string | null;
 };
 
 export const DEFAULT_SPECIES: Species[] = [
