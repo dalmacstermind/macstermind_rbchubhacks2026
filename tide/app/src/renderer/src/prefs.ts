@@ -7,6 +7,8 @@ export type Prefs = {
   sampling: Sampling;
   enhance: boolean;
   ignoreSpecks: boolean;
+  lookCloser: boolean; // tiled search for small fish (slower)
+  tracker: "bytetrack" | "ocsort";
   notify: boolean; // desktop notification when counting finishes
 };
 
@@ -15,6 +17,8 @@ export const DEFAULT_PREFS: Prefs = {
   sampling: 1,
   enhance: true,
   ignoreSpecks: true,
+  lookCloser: false,
+  tracker: "bytetrack",
   notify: true,
 };
 

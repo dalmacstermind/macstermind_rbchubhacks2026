@@ -245,6 +245,31 @@ export function UploadView({
                 />
                 Ignore tiny specks (sediment, bubbles)
               </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.lookCloser}
+                  onChange={(e) => set("lookCloser", e.target.checked)}
+                  className="mt-0.5 accent-primary"
+                />
+                <span>
+                  Look closer for small fish
+                  <span className="block text-xs text-muted-foreground">
+                    Searches the full-size picture in parts. Finds more small, distant fish, about 5× slower.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-center justify-between gap-2 text-sm">
+                Follow fish between pictures with
+                <select
+                  className="input w-auto py-1"
+                  value={form.tracker ?? "bytetrack"}
+                  onChange={(e) => set("tracker", e.target.value as "bytetrack" | "ocsort")}
+                >
+                  <option value="bytetrack">ByteTrack (default)</option>
+                  <option value="ocsort">OC-SORT (fish that turn or hide)</option>
+                </select>
+              </label>
             </div>
           </Disclosure>
           <button disabled={!files.length} onClick={onStart} className={`${btnPrimary} w-full py-3`}>

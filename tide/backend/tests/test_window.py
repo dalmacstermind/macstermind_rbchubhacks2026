@@ -59,7 +59,8 @@ def test_later_start_that_would_not_fit_the_video_is_flagged(short_sediment_vide
 
 
 def test_video_shorter_than_the_protocol_is_flagged(synthetic_video):
-    p = propose_window(synthetic_video, PROTOCOL, APP)
+    strict = replace(PROTOCOL, window=replace(W, allow_short_videos=False))
+    p = propose_window(synthetic_video, strict, APP)
     assert p.too_short is True
     assert (p.start_s, p.end_s, p.settled) == (None, None, None)
     assert "03:00.0 long" in p.reason and "17:00.0" in p.reason and "won't be processed" in p.reason

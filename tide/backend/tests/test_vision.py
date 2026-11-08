@@ -140,7 +140,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _wait(client, job):
-    for _ in range(300):
+    for _ in range(3600):  # up to ~3 min: counting runs in the background
         job = client.get(f"/analyses/{job['jobId']}").json()
         if job["state"] != "running":
             return job
@@ -160,10 +160,10 @@ def test_real_pipeline_tracks_identifies_and_reidentifies(client, tmp_path, synt
     status = client.get("/model").json()
     assert status["demo"] is False and status["device"] in ("gpu", "cpu")
 
-    # A clip too short for the protocol is flagged and not processed (US-2.1).
+    # A clip shorter than the protocol gets a shorter window to confirm (window.allow_short_videos).
     short = make_video(tmp_path / "T1_STAT1.mp4", seconds=6, fps=10)
     job = _wait(client, client.post("/analyses", json={"files": [str(short)], "ignoreSpecks": False}).json())
-    assert job["state"] == "done" and "too short" in job["files"][0]["detail"]
+    assert job["state"] == "done" and "waiting for confirmation" in job["files"][0]["detail"]
 
     job = _wait(client, client.post("/analyses", json={"site": "Test", "files": [str(synthetic_video)],
                                                        "ignoreSpecks": False}).json())

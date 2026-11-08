@@ -34,7 +34,8 @@ def _labels(db: Database, survey_id: int, registry: dict[str, str]):
 
 def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResults:
     protocol = survey_protocol(db, survey_id)  # the values this survey was processed with, not today's settings
-    clarity_cfg = load_vision_config().clarity
+    vision = load_vision_config()
+    clarity_cfg = vision.clarity
     registry = _registry(db)
     labels = _labels(db, survey_id, registry)
     remaining = unknowns(db, survey_id).remaining_by_file
@@ -43,12 +44,12 @@ def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResul
         points = db.points(v["id"])
         frames = {p["point_no"]: db.point_frames(v["id"], p["point_no"]) for p in points}
         s = av_results.video_summary(v, points, db.video_sightings(v["id"]), frames, labels, threshold, protocol,
-                                     clarity_cfg)
+                                     clarity_cfg, vision.stationary)
         videos.append(VideoOut(
             id=s.id, name=s.name, recorded_at=s.recorded_at, transect=s.transect, stat=s.stat,
             window_start_s=s.window_start_s, window_end_s=s.window_end_s, proposed_start_s=s.proposed_start_s,
             proposed_end_s=s.proposed_end_s, proposed_reason=s.proposed_reason, settled=s.settled,
-            too_short=s.too_short, confirmed_by=s.confirmed_by, count_state=s.count_state,
+            too_short=s.too_short, short_window=s.short_window, confirmed_by=s.confirmed_by, count_state=s.count_state,
             count_detail=s.count_detail, mean_count=s.mean_count, mean_count_ai=s.mean_count_ai,
             species_richness=s.species_richness, species_found=s.species_found, clarity_index=s.clarity_index,
             clarity_min=s.clarity_min, clarity_max=s.clarity_max, clarity_trend=s.clarity_trend,
@@ -60,6 +61,7 @@ def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResul
                 suggested_visibility=p.ai.suggested_visibility, visibility=p.visibility, notes=p.ai.notes,
                 staff_notes=p.staff_notes, needs_review=p.ai.needs_review, reviewed=p.reviewed,
                 edited_by=p.edited_by, uncertain=p.ai.uncertain, outside=p.ai.outside,
+                stationary=p.ai.stationary, drifting=p.ai.drifting, unidentifiable=p.ai.unidentifiable,
                 ai=AiPointCount(total_fish=p.ai.total_fish, invertebrates=p.ai.invertebrates),
                 clip=f"/points/{p.id}/clip" if p.has_clip else None) for p in s.points]))
     images = [ImageOut(**asdict(c)) for c in av_results.image_counts(db.photo_sightings(survey_id), labels, threshold)]

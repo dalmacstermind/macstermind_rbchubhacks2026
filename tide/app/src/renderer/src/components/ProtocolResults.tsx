@@ -1,7 +1,7 @@
 // Protocol results for a survey: one card per video (points, MeanCount, species richness, clarity)
 // and a table of image counts. Every number comes from the back end (GET /surveys/{id}/results);
 // this screen only shows them.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Person, SurveyResults } from "../../../shared/api";
 import type { Species } from "../../../shared/survey";
 import { api } from "../api";
@@ -14,11 +14,13 @@ export function ProtocolResults({
   species,
   person,
   version,
+  onCountingDone,
 }: {
   surveyId: number;
   species: Species[];
   person: Person;
   version: number; // changes when something else on the page changed the survey (labels, checks)
+  onCountingDone?: () => void; // reload the rest of the report (its pictures) once a video has been counted
 }) {
   const [results, setResults] = useState<SurveyResults | null>(null);
   const [error, setError] = useState("");
@@ -40,6 +42,13 @@ export function ProtocolResults({
     const t = setInterval(load, 2000);
     return () => clearInterval(t);
   }, [counting, load]);
+
+  // When counting finishes, the report's pictures (Check the fish, picture-by-picture counts) are new too.
+  const wasCounting = useRef(false);
+  useEffect(() => {
+    if (wasCounting.current && !counting) onCountingDone?.();
+    wasCounting.current = counting;
+  }, [counting, onCountingDone]);
 
   if (error) return <p className="text-sm text-destructive">{error}</p>;
   if (!results) return <p className="text-sm text-muted-foreground">Loading the results…</p>;

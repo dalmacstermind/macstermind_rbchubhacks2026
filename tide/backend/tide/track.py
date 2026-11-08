@@ -1,7 +1,8 @@
 """Tracking: the same fish across a video's pictures gets one `track_id` (CLAUDE.md, Models).
 
-ByteTrack (MIT; via Roboflow `trackers`, Apache 2.0) with a Kalman motion model and two-stage
-association on box overlap. One fish is then identified (and later counted) once per track, not
+ByteTrack (MIT) or OC-SORT (MIT), both via Roboflow `trackers` (Apache 2.0): a Kalman motion model
+with association on box overlap; OC-SORT adds observation-centric momentum, which helps when fish
+turn or are briefly hidden. One fish is then identified (and later counted) once per track, not
 once per picture. Detections the tracker does not keep get a track of their own, so nothing is
 silently dropped. Images are never tracked (each image detection is its own track).
 """
@@ -20,14 +21,24 @@ _TRACKERS_REFERENCE_FPS = 30  # `trackers` measures lost_track_buffer in frames 
 class VideoTracker:
     """Assigns track ids to the detections of one video, picture by picture in time order."""
 
-    def __init__(self, video_key: str, cfg: TrackConfig, sample_fps: float):
+    def __init__(self, video_key: str, cfg: TrackConfig, sample_fps: float, tracker: str | None = None):
         self.video_key = video_key
         self.cfg = cfg
         self._next_solo = 0
         self._pending: list[Detection] = []  # last picture's detections the tracker hasn't confirmed yet
         self.relinked: dict[str, str] = {}  # temporary id → track id it turned out to start
         self._tracker = None
-        if cfg.enabled:
+        self.name = tracker or cfg.tracker
+        if cfg.enabled and self.name == "ocsort":
+            import trackers
+            self._tracker = trackers.OCSORTTracker(
+                lost_track_buffer=max(1, round(cfg.lost_buffer_s * _TRACKERS_REFERENCE_FPS)),
+                frame_rate=float(max(0.1, sample_fps)),
+                minimum_consecutive_frames=1,
+                minimum_iou_threshold=cfg.match_iou,
+                high_conf_det_threshold=cfg.activation_threshold,
+            )
+        elif cfg.enabled:
             import trackers
             self._tracker = trackers.ByteTrackTracker(
                 lost_track_buffer=max(1, round(cfg.lost_buffer_s * _TRACKERS_REFERENCE_FPS)),

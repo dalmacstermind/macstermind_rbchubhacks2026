@@ -37,6 +37,7 @@ class WindowProposal:
     settled: bool | None       # False: sediment still unsettled at the latest allowed start; None: not checked
     too_short: bool
     settle_score: float | None  # median sediment score just after the proposed start (lower = clearer)
+    short: bool = False         # shorter than the protocol window (window.allow_short_videos): not comparable
 
 
 @dataclass
@@ -77,6 +78,8 @@ def propose_window(video_path: Path, protocol: ProtocolConfig, app: AppConfig) -
     w = protocol.window
     info = probe_video(video_path)
     needed = w.trim_start_s + w.length_s + w.trim_end_s
+    if info.duration_s + 1 / info.fps < needed and w.allow_short_videos:
+        return _short_proposal(info.duration_s, w)
     if info.duration_s + 1 / info.fps < needed:
         return WindowProposal(None, None, f"Too short for the protocol: the video is {_mmss(info.duration_s)} long "
                               f"but needs at least {_mmss(needed)} ({w.trim_start_s:g} s + {_mmss(w.length_s)} + "
@@ -119,9 +122,38 @@ def propose_window(video_path: Path, protocol: ProtocolConfig, app: AppConfig) -
                           round(median(around), 3) if around else None)
 
 
+def _short_proposal(duration_s: float, w: WindowConfig) -> WindowProposal:
+    """A video shorter than the protocol needs (window.allow_short_videos): propose the usable clip.
+
+    The start and end are still discarded when the video is long enough to keep something in between;
+    otherwise the whole clip is proposed. Either way it is flagged as a shorter window: its counts are
+    not comparable with full protocol windows, and a person must still confirm it.
+    """
+    if duration_s - w.trim_start_s - w.trim_end_s >= 1:
+        start, end = w.trim_start_s, duration_s - w.trim_end_s
+        how = f"the first {w.trim_start_s:g} s and last {w.trim_end_s:g} s are still left out"
+    else:
+        start, end = 0.0, duration_s
+        how = "it's too short to leave out the start and end, so the whole video is used"
+    needed = w.trim_start_s + w.length_s + w.trim_end_s
+    reason = (f"Shorter than the protocol window: the video is {_mmss(duration_s)} long and the protocol needs "
+              f"{_mmss(needed)}. Proposed {_mmss(start)}–{_mmss(end)} ({how}). Counts from a shorter window "
+              "aren't comparable with full 15-minute windows. Check the video before confirming.")
+    return WindowProposal(round(start, 3), round(end, 3), reason, None, False, None, short=True)
+
+
 def validate_window(start_s: float, end_s: float, duration_s: float, fps: float, cfg: WindowConfig) -> None:
     """Protocol rules for a confirmed window. Raises WindowError with a plain-English reason."""
     tol = 1 / fps  # one frame either way
+    if cfg.allow_short_videos and duration_s + tol < cfg.trim_start_s + cfg.length_s + cfg.trim_end_s:
+        # A video shorter than the protocol: any part of it, at most window.length_s long.
+        if end_s <= start_s:
+            raise WindowError("The window must end after it starts.")
+        if start_s < -tol or end_s > duration_s + tol:
+            raise WindowError(f"The window must be inside the video (00:00.0–{_mmss(duration_s)}).")
+        if end_s - start_s > cfg.length_s + tol:
+            raise WindowError(f"The window can't be longer than {_mmss(cfg.length_s)}.")
+        return
     latest = cfg.trim_start_s + cfg.max_extra_settle_s
     must_end_by = duration_s - cfg.trim_end_s
     if end_s <= start_s:
@@ -178,6 +210,30 @@ def context_range(timestamp_s: float, context_s: float, duration_s: float) -> tu
     if not 0 <= timestamp_s <= duration_s:
         raise WindowError(f"Point at {timestamp_s} s is outside the video (0–{duration_s:.1f} s).")
     return max(0.0, timestamp_s - context_s), min(duration_s, timestamp_s + context_s)
+
+
+def short_window_timestamps(window_start_s: float, window_end_s: float, cfg: SubsampleConfig,
+                            full_window_s: float) -> list[float]:
+    """Points for a SHORTER window (a short video, window.allow_short_videos): spread across the clip.
+
+    The window is cut into n equal slices with a point in the middle of each, about
+    subsample.short_window_interval_s apart, and never more points than a full window has
+    (window.length_s ÷ subsample.interval_s). Example: 8 s with 2 s spacing -> 1, 3, 5, 7 s.
+    """
+    length = window_end_s - window_start_s
+    if length <= 0:
+        raise WindowError(f"The analysis window {window_start_s}–{window_end_s} s is not a valid time range.")
+    full = max(1, int(full_window_s // cfg.interval_s))
+    n = max(1, min(full, int(length // cfg.short_window_interval_s)))
+    step = length / n
+    return [round(window_start_s + (k + 0.5) * step, 3) for k in range(n)]
+
+
+def plan_short_window_points(video_id: str, window_start_s: float, window_end_s: float, cfg: SubsampleConfig,
+                             full_window_s: float, clip_dir: Path) -> list[SubsamplePoint]:
+    times = short_window_timestamps(window_start_s, window_end_s, cfg, full_window_s)
+    width = max(2, len(str(len(times))))
+    return [SubsamplePoint(video_id, n, t, clip_dir / f"point_{n:0{width}d}.mp4") for n, t in enumerate(times, 1)]
 
 
 def plan_subsample_points(video_id: str, window_start_s: float, window_end_s: float, cfg: SubsampleConfig,

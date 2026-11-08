@@ -11,6 +11,9 @@ import {
   type SpeciesStatus,
 } from "../../../shared/survey";
 import { api } from "../api";
+import { DrawLayer } from "../components/DrawLayer";
+import { LabelPicker } from "../components/LabelPicker";
+import { SpeciesCombobox } from "../components/SpeciesCombobox";
 import { SuggestionButtons } from "../components/SuggestionButtons";
 import { UseAsReference } from "../components/UseAsReference";
 import type { ReviewMode } from "./Report";
@@ -36,6 +39,8 @@ export function ReviewView({
   person,
   edit,
   onBack,
+  surveyId,
+  onReload,
 }: {
   frames: Frame[];
   species: Species[];
@@ -46,6 +51,8 @@ export function ReviewView({
   startMode: ReviewMode;
   person: Person;
   edit: (frameId: string, det: Detection, patch: Patch) => void;
+  surveyId: number;
+  onReload: () => void; // after adding a fish the AI missed
   onBack: () => void;
 }) {
   const matches = (d: Detection, mode: ReviewMode) =>
@@ -61,6 +68,9 @@ export function ReviewView({
   const [view, setView] = useState({ brightness: 100, contrast: 100, zoom: 1 });
   const [showView, setShowView] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [drawing, setDrawing] = useState(false); // "Add a missed fish": drag a box on the picture
+  const [drawn, setDrawn] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [drawError, setDrawError] = useState("");
 
   const fishSpecies = species.filter((s) => s.kind !== "invertebrate");
   const invSpecies = species.filter((s) => s.kind === "invertebrate");
@@ -204,6 +214,16 @@ export function ReviewView({
                 Adjust view{filtered && " •"}
               </button>
               <button
+                className={`${btnGhost} ${drawing ? "border-primary" : ""}`}
+                onClick={() => {
+                  setDrawing(!drawing);
+                  setDrawn(null);
+                }}
+                aria-pressed={drawing}
+              >
+                {drawing ? "Drag around the fish…" : "+ Add a missed fish"}
+              </button>
+              <button
                 onClick={() => goTo(fi - 1)}
                 disabled={fi === 0}
                 className={btnGhost}
@@ -283,8 +303,23 @@ export function ReviewView({
                   </span>
                 </button>
               ))}
-              <div className="absolute bottom-3 left-3 rounded-md bg-background/85 px-2 py-1 font-mono text-xs backdrop-blur">
+              {drawing && (
+                <DrawLayer
+                  onDrawn={(box) => {
+                    setDrawn(box);
+                    setDrawing(false);
+                  }}
+                />
+              )}
+              {drawn && (
+                <span
+                  style={{ left: `${drawn.x}%`, top: `${drawn.y}%`, width: `${drawn.w}%`, height: `${drawn.h}%` }}
+                  className="pointer-events-none absolute border-2 border-warning"
+                />
+              )}
+              <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-md bg-background/85 px-2 py-1 font-mono text-xs backdrop-blur">
                 {frame.source} · {frame.timestamp}
+                <PictureQuality frame={frame} />
               </div>
             </div>
           </div>
@@ -321,6 +356,35 @@ export function ReviewView({
         </div>
 
         <div className="space-y-4">
+          {drawn && (
+            <div className="rounded-2xl border border-warning/60 bg-card p-5">
+              <div className="font-display text-lg font-semibold">Label the fish you drew</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                It's added to the count if this picture is inside a point's tolerance window (or it's a photo).
+              </p>
+              <div className="mt-3">
+                <LabelPicker
+                  species={species}
+                  suggestions={[]}
+                  onAddSpecies={() => setAdding(true)}
+                  onChoose={(c) =>
+                    void api.labels
+                      .add({ ...c, surveyId, frameId: frame.id, box: drawn, by: person.name })
+                      .then(() => {
+                        setDrawn(null);
+                        setDrawError("");
+                        onReload();
+                      })
+                      .catch((e: Error) => setDrawError(e.message))
+                  }
+                />
+              </div>
+              {drawError && <p className="mt-2 text-sm text-destructive">{drawError}</p>}
+              <button className={`${btnLink} mt-3`} onClick={() => setDrawn(null)}>
+                Cancel
+              </button>
+            </div>
+          )}
           <div className="rounded-2xl border border-border bg-card p-5">
             {det ? (
               <>
@@ -353,7 +417,30 @@ export function ReviewView({
                     {det.speciesId === UNKNOWN ? "It's a fish, species unknown" : "Yes, that's right"} <Kbd>Y</Kbd>
                   </button>
                 )}
+                {det.possibleDrift && (
+                  <p className="mt-2">
+                    <Chip tone="review" icon="≈">
+                      Moved exactly like the water: debris or weed? Not counted until you confirm.
+                    </Chip>
+                  </p>
+                )}
                 <div className="mt-5 text-sm font-medium">{det.speciesId === UNKNOWN ? "It's a…" : "No, it's a…"}</div>
+                <div className="mt-2">
+                  <SpeciesCombobox
+                    placeholder="Type a species to search…"
+                    options={[
+                      ...ordered.map((sp) => ({
+                        value: sp.id,
+                        label: sp.common,
+                        group: sp.kind === "invertebrate" ? "Invertebrates" : "Fish",
+                        hint: sp.scientific && sp.scientific !== "—" ? sp.scientific : undefined,
+                      })),
+                      { value: NOT_FISH, label: "Not a fish (seaweed, sediment, debris)", group: "Other" },
+                    ]}
+                    onChoose={(id) => apply({ speciesId: id, verified: true })}
+                    onAddNew={() => setAdding(true)}
+                  />
+                </div>
                 <div className="mt-2 max-h-72 space-y-0.5 overflow-auto pr-1">
                   <PickGroup
                     label="Fish"
@@ -504,14 +591,16 @@ export function AddSpecies({
   person,
   onClose,
   onAdded,
+  initialName = "",
 }: {
   species: Species[];
   person: Person;
+  initialName?: string; // e.g. what was typed in the label combo box
   onClose: () => void;
   onAdded: (list: Species[], added?: Species) => void;
 }) {
   const [form, setForm] = useState({
-    common: "",
+    common: initialName,
     scientific: "",
     status: "native" as SpeciesStatus,
     habitat: "Marine",
@@ -617,5 +706,29 @@ export function AddSpecies({
         </div>
       )}
     </Modal>
+  );
+}
+
+const QUALITY: Record<string, string> = {
+  clear: "Clear",
+  moderate: "Moderate",
+  muddy: "Muddy",
+  obscured: "Too murky to identify fish",
+};
+
+/** How clear this picture is (quality filter) and whether its boxes were carried over (static picture). */
+function PictureQuality({ frame }: { frame: Frame }) {
+  return (
+    <>
+      {frame.quality && (
+        <span
+          title={frame.qualityReasons || undefined}
+          className={frame.quality === "obscured" || frame.quality === "muddy" ? "text-warning-ink" : ""}
+        >
+          · {QUALITY[frame.quality] ?? frame.quality}
+        </span>
+      )}
+      {frame.static && <span title="Same as the previous picture: its boxes were carried over">· static</span>}
+    </>
   );
 }

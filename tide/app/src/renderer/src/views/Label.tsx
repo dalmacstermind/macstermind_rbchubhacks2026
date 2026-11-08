@@ -35,7 +35,7 @@ export function LabelView({
   const [open, setOpen] = useState<string | null>(null);
   const [drawn, setDrawn] = useState<Drawn | null>(null);
   const [asReference, setAsReference] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null); // null = closed; text = name typed so far
   const [message, setMessage] = useState("");
   const frames = useMemo(() => new Map(data.frames.map((f) => [f.id, f])), [data.frames]);
 
@@ -79,11 +79,12 @@ export function LabelView({
 
   return (
     <>
-      {adding && (
+      {adding !== null && (
         <AddSpecies
+          initialName={adding}
           species={species}
           person={person}
-          onClose={() => setAdding(false)}
+          onClose={() => setAdding(null)}
           onAdded={(list, added) => {
             setSpecies(list);
             if (added) void apply({ action: "species", species: added.id });
@@ -171,7 +172,7 @@ export function LabelView({
               species={species}
               suggestions={selected.size || drawn ? [] : (card?.suggestions ?? [])}
               onChoose={(c) => void apply(c)}
-              onAddSpecies={() => setAdding(true)}
+              onAddSpecies={(typed) => setAdding(typed ?? "")}
               disabled={!drawn && !targets.length}
             />
             <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">

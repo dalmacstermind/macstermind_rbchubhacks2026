@@ -12,6 +12,8 @@ export type AnalysisRequest = {
   sampling: Sampling;
   enhance: boolean; // clear up murky water
   ignoreSpecks: boolean; // drop tiny boxes (sediment, bubbles)
+  lookCloser: boolean; // also search the full-size picture in tiles: more small fish, slower
+  tracker?: "bytetrack" | "ocsort"; // how fish are followed between pictures (default: settings)
   files: string[]; // full paths on disk
 };
 
@@ -133,6 +135,9 @@ export type PointResult = {
   editedBy: string;
   uncertain: number;
   outside: number;
+  stationary: number; // objects that didn't move (pole markings, rocks, a resting fish?): not counted
+  drifting: number; // moved exactly like the water (debris?): not counted until a person confirms
+  unidentifiable: number; // seen only in pictures too murky to identify fish: not counted
   ai: { totalFish: number; invertebrates: number }; // the AI's counts, never changed
   clip: string | null; // full URL of the ±context clip (token added by api.ts)
 };
@@ -150,6 +155,7 @@ export type VideoResult = {
   proposedReason: string;
   settled: boolean | null;
   tooShort: boolean; // flagged: not processed
+  shortWindow: boolean; // shorter than the protocol window: counts not comparable with full windows
   confirmedBy: string;
   countState: "" | "queued" | "running" | "done" | "failed"; // "" = waiting for a confirmed window
   countDetail: string;
@@ -292,6 +298,7 @@ export type Video = {
   windowEndS: number | null;
   confirmedBy: string;
   confirmedAt: string;
+  shortWindow?: boolean; // shorter than the protocol window (protocol.yaml window.allow_short_videos)
 };
 
 

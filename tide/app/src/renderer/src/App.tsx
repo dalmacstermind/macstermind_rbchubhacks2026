@@ -36,6 +36,8 @@ export default function App() {
     sampling: prefs.sampling,
     enhance: prefs.enhance,
     ignoreSpecks: prefs.ignoreSpecks,
+    lookCloser: prefs.lookCloser,
+    tracker: prefs.tracker,
   }));
   const [species, setSpecies] = useState<Species[]>([]);
   const [model, setModel] = useState<ModelStatus | null>(null);
@@ -240,6 +242,8 @@ export default function App() {
                 startMode={reviewMode}
                 person={person}
                 edit={editDetection}
+                surveyId={data.survey.id}
+                onReload={() => void api.surveys.get(data.survey.id).then(setData)}
                 onBack={() => go("report")}
               />
             )}
