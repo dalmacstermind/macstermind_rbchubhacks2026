@@ -72,7 +72,7 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 | --- | --- | --- | --- |
 | GET | `/surveys` | | `SurveyInfo[]`, finished surveys only, newest first |
 | GET | `/surveys/{id}` | | `SurveyData` |
-| PATCH | `/surveys/{id}` | `{site?, surveyDate?}` | `204`. Used to add a missing filming date |
+| PATCH | `/surveys/{id}` | `{site?, surveyDate?, threshold?}` | `204`. Add a missing filming date, or change the certainty (0–1) at which a fish counts without a person checking it (default 0.4) |
 | DELETE | `/surveys/{id}` | | `204`. Also deletes its pictures |
 | GET | `/frames/{frameId}/image` | | the JPG/PNG picture |
 | PATCH | `/detections/{id}` | `{speciesId, verified, by}` | `204`. Saved the moment staff click; `by` is who did it |
@@ -389,9 +389,14 @@ Evaluation     {
 
 - **The back end** finds fish and stores everything. It returns **every** detection with confidence ≥ 0.2
   (`detect.conf_threshold` in `config/app.yaml`), including unsure ones. `confidence` is the fish
-  detector's; the species model's result is in `aiLabel` / `suggestions`. A species is only filled in
-  when the species model is sure (`species.match_threshold` and `species.margin`); otherwise
-  `speciesId` is `"unknown"` and staff pick from the suggestions.
+  detector's; the species model's result is in `aiLabel` / `suggestions`. With `species.best_match: true`
+  (the default) every fish is named after its closest species in the list; when it isn't a clear
+  match (`species.match_threshold` and `species.margin`), `unknownReason` says so ("Closest match
+  (similarity 0.58, not a clear match)") and staff can relabel it. With `best_match: false`, unclear
+  fish stay `"unknown"` for the Label page.
+- **The back end** removes boxes on things fixed in view for the whole video (the survey pole and its
+  markings, rope, rocks: `fixed_structure` in `config/app.yaml`) and joins the pieces of each fish's
+  track (`track.merge_gap_s`, `track.merge_distance`), so one fish is counted once.
 - **The back end** calculates the protocol figures (point counts, MeanCount, species richness, image
   counts, clarity) in `GET /surveys/{id}/results`. The app only shows them and writes them to Excel.
 - **The app** still works out the picture-by-picture MaxN figures (an optional extra, not the headline),

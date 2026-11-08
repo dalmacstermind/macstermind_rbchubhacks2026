@@ -8,6 +8,7 @@ How it works (no retraining needed):
 - Rules (thresholds in config/app.yaml, `species.*`). With reference pictures for only one species,
   a fish is never named automatically (only suggested): there's nothing to compare it against.
     best ≥ match_threshold and ahead of the next species by ≥ margin  → that species
+    otherwise, with species.best_match (default)                      → the closest species, with a reason
     best < novelty_threshold (far from everything in the registry)    → "Potential Novel Sighting"
     otherwise                                                         → "Unknown"
   Similarity is not a probability. The top suggestions are always shown so staff can pick.
@@ -104,6 +105,11 @@ def match(crop_vectors: np.ndarray, index: ReferenceIndex, cfg: SpeciesConfig) -
                                                     "compare. Add pictures of other species too.")
     if best >= cfg.match_threshold and best - second >= cfg.margin:
         return SpeciesResult(top, novelty, ranked[0][0])
+    if cfg.best_match:  # closest species in the list; the reason says it wasn't a clear match
+        why = ("two or more species look alike" if best >= cfg.match_threshold
+               else "not like any species in the list" if best < cfg.novelty_threshold
+               else "not a clear match")
+        return SpeciesResult(top, novelty, ranked[0][0], f"Closest match (similarity {best:.2f}, {why}).")
     if best < cfg.novelty_threshold:
         return SpeciesResult(top, novelty, NOVEL, "It doesn't look like any species in the list.")
     if best >= cfg.match_threshold:

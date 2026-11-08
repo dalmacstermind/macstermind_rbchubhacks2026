@@ -176,3 +176,14 @@ def test_fix_survey_date(client):
     assert client.patch(f"/surveys/{sid}", json={"surveyDate": "2025-08-20", "site": "T1"}).status_code == 204
     info = client.get(f"/surveys/{sid}").json()["survey"]
     assert info["surveyDate"] == "2025-08-20" and info["site"] == "T1"
+
+
+def test_change_when_fish_count_automatically(client):
+    """Default 40 %; an existing survey can change it (fish at or above it need no "Yes, that's right")."""
+    job = wait(client, client.post("/analyses", json={"files": [str(SAMPLE)]}).json())
+    sid = job["surveyId"]
+    assert client.get(f"/surveys/{sid}").json()["survey"]["threshold"] == 0.4
+    assert client.patch(f"/surveys/{sid}", json={"threshold": 1.5}).status_code == 422
+    assert client.patch(f"/surveys/{sid}", json={"threshold": 0.3}).status_code == 204
+    info = client.get(f"/surveys/{sid}").json()["survey"]
+    assert info["threshold"] == 0.3 and info["site"]  # nothing else changed
