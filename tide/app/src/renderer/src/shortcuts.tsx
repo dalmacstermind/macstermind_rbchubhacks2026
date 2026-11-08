@@ -33,7 +33,7 @@ const SECTIONS: { title: string; keys: [string[], string][] }[] = [
     ],
   },
   {
-    title: "Check the fish",
+    title: "Approve Findings",
     keys: [
       [["←", "→"], "Previous / next picture"],
       [["↑", "↓"], "Previous / next box in the picture"],

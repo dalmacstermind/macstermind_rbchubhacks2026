@@ -68,7 +68,7 @@ export function ProtocolResults({
     onVideoFocused?.();
   }, [focusVideoId, results, onVideoFocused]);
 
-  // When counting finishes, the report's pictures (Check the fish, picture-by-picture counts) are new too.
+  // When counting finishes, the report's pictures (Approve Findings, picture-by-picture counts) are new too.
   const progress = countProgress(results);
   const progressKey = progress ? `${progress.state}|${progress.percent}|${progress.detail}|${progress.etaS}` : "";
   // eslint-disable-next-line react-hooks/exhaustive-deps -- progressKey stands for progress
