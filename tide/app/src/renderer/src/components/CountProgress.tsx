@@ -9,6 +9,12 @@ export function timeLeft(etaS: number | null | undefined): string {
   return `About ${min} minute${min === 1 ? "" : "s"} left`;
 }
 
+/** The stage from the back end's status text, without the percentage and time left the ring shows:
+ * "Identifying the species: 93% · less than a minute left" -> "Identifying the species". */
+export function stageOf(detail: string): string {
+  return detail.replace(/:\s*\d+%.*$/, "").trim();
+}
+
 export function ProgressRing({
   percent,
   size = 72,
@@ -78,7 +84,7 @@ export function CountProgress({
         <div className="text-sm text-muted-foreground">
           {waiting
             ? detail || "It starts as soon as the video before it is done."
-            : `${detail || "Working"} · ${timeLeft(etaS)}`}
+            : `${stageOf(detail) || "Working"} · ${timeLeft(etaS)}`}
         </div>
         <div
           className="mt-2 h-2 overflow-hidden rounded-full bg-secondary"

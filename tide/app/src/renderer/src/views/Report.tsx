@@ -13,6 +13,7 @@ import { api } from "../api";
 import { ExportMenu } from "../components/ExportMenu";
 import { MatchAgainButton } from "../components/MatchAgainButton";
 import { CountProgress } from "../components/CountProgress";
+import { NotCountedYet } from "../components/NotCountedYet";
 import { ProtocolResults, type SurveyCountProgress } from "../components/ProtocolResults";
 import { SurveyDoneCard } from "../components/SurveyDoneCard";
 import { buildWorkbook } from "../exportXlsx";
@@ -30,6 +31,7 @@ import {
   btnGhost,
   btnLink,
   btnPrimary,
+  plural,
 } from "../ui";
 
 export type ReviewMode = "all" | "review" | "label";
@@ -60,7 +62,9 @@ export function ReportView({
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
   const [counting, setCounting] = useState<SurveyCountProgress | null>(null); // pictures come when counting is done
-  const open = openItems(s, qc ?? undefined);
+  const open = openItems(s, qc ?? undefined, survey);
+  // Videos wait for a person before they're counted, so an empty report often means "not looked at yet".
+  const nothingCounted = survey.videosToCount > 0 && frames.length === 0;
   const fishRows = s.rows.filter((r) => r.sp.kind !== "invertebrate");
   const invRows = s.rows.filter((r) => r.sp.kind === "invertebrate");
   const max = Math.max(1, ...s.rows.map((r) => r.maxN));
@@ -86,7 +90,12 @@ export function ReportView({
     const path = await window.desktop.savePdf(fileName);
     if (path) setSaved(path);
   };
-  const go = (item: OpenItem) => (item.key === "qc" ? onQc() : onReview(item.key));
+  const go = (item: OpenItem) => {
+    if (item.key === "qc") onQc();
+    else if (item.key === "window" || item.key === "count")
+      document.getElementById("protocol-results")?.scrollIntoView({ behavior: "smooth" });
+    else onReview(item.key);
+  };
 
   return (
     <>
@@ -163,113 +172,123 @@ export function ReportView({
           version={frames.reduce((n, f) => n + f.detections.filter((d) => d.verified).length, frames.length)}
         />
 
-        <div>
-          <h2 className="font-display text-xl font-semibold">Picture-by-picture counts</h2>
-          <p className="text-sm text-muted-foreground">
-            The most fish of each species seen in one picture (MaxN). An optional extra: the protocol figures are above.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <Stat label="Fish counted" value={s.total} sub={`${s.sightings} sightings in total`} />
-          <Stat
-            label="Fish species"
-            value={s.speciesCount}
-            sub={s.toLabel ? `+ ${s.toLabel} not yet identified` : undefined}
-          />
-          <Stat label="Invasive" value={s.invasive} tone="danger" />
-          <Stat
-            label="Checked by people"
-            value={`${Math.round((s.confirmed / Math.max(1, frames.flatMap((f) => f.detections).length)) * 100)}%`}
-            sub={s.checkedBy.length ? `by ${s.checkedBy.join(", ")}` : "AI only so far"}
-          />
-        </div>
-
-        {s.rows.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground">
-            {counting ? (
-              <div className="mx-auto max-w-md text-left">
-                <CountProgress
-                  state={counting.state}
-                  percent={counting.percent}
-                  detail={counting.detail}
-                  etaS={counting.etaS}
-                  size={112}
-                />
-                <p className="mt-4 text-center text-sm">
-                  The pictures and their fish appear here when counting is done.
-                </p>
-              </div>
-            ) : s.toReview > 0 ? (
-              "No fish counted yet. Check the possible fish above to add them to the report."
-            ) : (
-              "No fish were found in this footage."
-            )}
+        {nothingCounted && counting ? (
+          <div className="rounded-2xl border border-border bg-card p-10">
+            <div className="mx-auto max-w-md">
+              <CountProgress
+                state={counting.state}
+                percent={counting.percent}
+                detail={counting.detail}
+                etaS={counting.etaS}
+                size={112}
+              />
+              <p className="mt-4 text-center text-sm text-muted-foreground">
+                The pictures and their fish appear here when counting is done.
+              </p>
+            </div>
           </div>
+        ) : nothingCounted ? (
+          <NotCountedYet survey={survey} />
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
-            <table className="w-full text-sm">
-              <thead className="bg-secondary/60 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="px-6 py-3">Species</th>
-                  <th className="px-6 py-3">Status</th>
-                  <th className="w-1/3 px-6 py-3">Counted</th>
-                  <th className="px-6 py-3">Sightings</th>
-                  <th className="px-6 py-3">How sure</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...fishRows, ...invRows].map((r, i) => (
-                  <tr
-                    key={r.sp.id}
-                    className={`border-t border-border ${i === fishRows.length && i > 0 ? "border-t-2" : ""}`}
-                  >
-                    <td className="px-6 py-4">
-                      <div className="font-medium">
-                        {r.sp.common}
-                        {r.sp.kind === "invertebrate" && (
-                          <span className="ml-2 text-xs font-normal text-muted-foreground">invertebrate</span>
-                        )}
-                      </div>
-                      <div className="text-xs italic text-muted-foreground">{r.sp.scientific}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {r.sp.id === UNKNOWN ? (
-                        <button className="outline-none" onClick={() => onReview("label")}>
-                          <Chip tone="review">Not identified →</Chip>
-                        </button>
-                      ) : (
-                        <StatusPill status={r.sp.status} />
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 font-display text-lg font-semibold">{r.maxN}</span>
-                        <div className="h-2 flex-1 rounded-full bg-secondary">
-                          <div
-                            className={`h-full rounded-full ${
-                              r.sp.status === "invasive"
-                                ? "bg-destructive"
-                                : r.sp.status === "unusual"
-                                  ? "bg-warning"
-                                  : "bg-gradient-ocean"
-                            }`}
-                            style={{ width: `${(r.maxN / max) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                      {r.corrected > 0 && (
-                        <div className="mt-1 text-xs text-primary">{r.corrected} corrected by people</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-muted-foreground">{r.sightings}</td>
-                    <td className="px-6 py-4">
-                      <Certainty value={r.conf} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div>
+              <h2 className="font-display text-xl font-semibold">Picture-by-picture counts</h2>
+              <p className="text-sm text-muted-foreground">
+                The most fish of each species seen in one picture (MaxN). An optional extra: the protocol figures are
+                above.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+              <Stat label="Fish counted" value={s.total} sub={`${s.sightings} sightings in total`} />
+              <Stat
+                label="Fish species"
+                value={s.speciesCount}
+                sub={s.toLabel ? `+ ${s.toLabel} not yet identified` : undefined}
+              />
+              <Stat
+                label="Checked by people"
+                value={`${Math.round((s.confirmed / Math.max(1, frames.flatMap((f) => f.detections).length)) * 100)}%`}
+                sub={s.checkedBy.length ? `by ${s.checkedBy.join(", ")}` : "AI only so far"}
+              />
+            </div>
+
+            {s.rows.length === 0 ? (
+              <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground">
+                {s.toReview > 0
+                  ? "No fish counted yet. Check the possible fish above to add them to the report."
+                  : survey.videosToCount > 0
+                    ? `No fish so far, but ${plural(survey.videosToCount, "video")} still ${survey.videosToCount === 1 ? "hasn't" : "haven't"} been counted.`
+                    : frames.length === 0
+                      ? "TIDE didn't look at any pictures in this survey, so there's nothing to show."
+                      : "No fish were found in this footage."}
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                <table className="w-full text-sm">
+                  <thead className="bg-secondary/60 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="px-6 py-3">Species</th>
+                      <th className="px-6 py-3">Status</th>
+                      <th className="w-1/3 px-6 py-3">Counted</th>
+                      <th className="px-6 py-3">Sightings</th>
+                      <th className="px-6 py-3">How sure</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...fishRows, ...invRows].map((r, i) => (
+                      <tr
+                        key={r.sp.id}
+                        className={`border-t border-border ${i === fishRows.length && i > 0 ? "border-t-2" : ""}`}
+                      >
+                        <td className="px-6 py-4">
+                          <div className="font-medium">
+                            {r.sp.common}
+                            {r.sp.kind === "invertebrate" && (
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">invertebrate</span>
+                            )}
+                          </div>
+                          <div className="text-xs italic text-muted-foreground">{r.sp.scientific}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {r.sp.id === UNKNOWN ? (
+                            <button className="outline-none" onClick={() => onReview("label")}>
+                              <Chip tone="review">Not identified →</Chip>
+                            </button>
+                          ) : (
+                            <StatusPill status={r.sp.status} />
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 font-display text-lg font-semibold">{r.maxN}</span>
+                            <div className="h-2 flex-1 rounded-full bg-secondary">
+                              <div
+                                className={`h-full rounded-full ${
+                                  r.sp.status === "invasive"
+                                    ? "bg-destructive"
+                                    : r.sp.status === "unusual"
+                                      ? "bg-warning"
+                                      : "bg-gradient-ocean"
+                                }`}
+                                style={{ width: `${(r.maxN / max) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                          {r.corrected > 0 && (
+                            <div className="mt-1 text-xs text-primary">{r.corrected} corrected by people</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-muted-foreground">{r.sightings}</td>
+                        <td className="px-6 py-4">
+                          <Certainty value={r.conf} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
 
         <Disclosure label="How fish are counted">
@@ -397,7 +416,7 @@ function ExportCheck({
               {i.text}
             </span>
             <button className={btnLink} onClick={() => onGo(i)}>
-              {i.key === "qc" ? "QC" : i.key === "label" ? "Name them" : "Check"} →
+              {i.key === "qc" ? "QC" : i.key === "label" ? "Name them" : i.key === "review" ? "Check" : "Show me"} →
             </button>
           </li>
         ))}

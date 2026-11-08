@@ -47,6 +47,7 @@ export function CountControls({
       {confirmNode}
       {counting && <Chip tone="working">{v.countDetail || "Counting…"}</Chip>}
       {v.countState === "failed" && <Chip tone="failed">{v.countDetail}</Chip>}
+      {v.countState === "done" && v.countDetail && <Chip tone="done">{v.countDetail}</Chip>}
       {v.countState === "stopped" && (
         <Chip tone="skipped" icon="■">
           {v.countDetail || "Counting stopped"}

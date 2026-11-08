@@ -161,6 +161,18 @@ class SurveyInfo(Model):
     protocol: Optional[ProtocolSettings] = None
     protocol_recorded: bool = False
     windows_to_confirm: int = 0  # videos whose analysis window no person has confirmed yet (nothing counted)
+    videos_to_count: int = 0  # videos with no finished count yet (waiting, counting, stopped or failed)
+    videos_counting: int = 0  # of those, videos waiting in the queue or being counted right now
+
+
+class CountStatus(Model):
+    """How one video's count is going (GET /counts): the app shows progress and says when it ends."""
+    video_id: int
+    survey_id: int
+    site: str
+    file_name: str
+    state: Literal["queued", "running", "done", "failed", "stopped"]
+    detail: str = ""
 
 
 class SurveyPatch(Model):

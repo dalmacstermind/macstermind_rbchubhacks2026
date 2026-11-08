@@ -37,11 +37,11 @@ export type Job = {
 export type Progress = Pick<Job, "surveyId" | "percent" | "stage" | "detail" | "files">;
 
 export const ANALYSIS_STAGES = [
-  "Splitting video into pictures",
-  "Clearing up murky water",
-  "Finding fish",
-  "Identifying species",
-  "Writing the report",
+  "Opening your files and checking each video's analysis window",
+  "Clearing up murky photos",
+  "Looking for fish in photos",
+  "Identifying species in photos",
+  "Saving the survey",
 ] as const;
 
 export type SurveyInfo = {
@@ -60,6 +60,20 @@ export type SurveyInfo = {
   protocolRecorded: boolean;
   /** Videos whose analysis window no person has confirmed yet: nothing of them is counted. */
   windowsToConfirm: number;
+  /** Videos with no finished count yet (waiting, counting, stopped or failed). */
+  videosToCount: number;
+  /** Of those, videos waiting in the queue or being counted right now. */
+  videosCounting: number;
+};
+
+/** How one video's count is going (GET /counts). */
+export type CountStatus = {
+  videoId: number;
+  surveyId: number;
+  site: string;
+  fileName: string;
+  state: "queued" | "running" | "done" | "failed" | "stopped";
+  detail: string;
 };
 
 export type SurveyData = { survey: SurveyInfo; frames: Frame[] };
@@ -382,6 +396,10 @@ export type TideApi = {
     /** Each video's proposed and confirmed analysis window. */
     videos: (id: number) => Promise<Video[]>;
   };
+  counts: {
+    /** How every video's count is going. */
+    list: () => Promise<CountStatus[]>;
+  };
   videos: {
     /** Confirm (or change) a video's analysis window, saved with the person's name. */
     confirmWindow: (id: string, startS: number, endS: number, person: string) => Promise<Video>;
@@ -436,5 +454,7 @@ export type DesktopApi = {
   savePdf: (suggestedName: string) => Promise<string | null>;
   /** Taskbar progress (0–1), or null to clear it. */
   setProgress: (fraction: number | null) => void;
+  /** Tells Electron how many videos are being counted, so closing TIDE can warn first. */
+  setCounting: (videos: number) => void;
   openPath: (path: string) => void;
 };

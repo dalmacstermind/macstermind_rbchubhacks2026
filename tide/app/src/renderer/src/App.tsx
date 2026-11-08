@@ -3,10 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FileStatus, ModelStatus, Person, PickedFile, QcData, SurveyData } from "../../shared/api";
 import { summarize, type Detection, type Species } from "../../shared/survey";
 import { api } from "./api";
+import { useCounts } from "./counts";
 import { qcState, useOverview } from "./overview";
 import { usePrefs } from "./prefs";
 import { ShortcutsSheet, useKeys } from "./shortcuts";
 import { AppTopBar } from "./components/AppTopBar";
+import { CountingBanner } from "./components/CountingBanner";
 import { StepTabs } from "./components/StepTabs";
 import { ToolsSidebar } from "./components/ToolsSidebar";
 import type { Page } from "./pages";
@@ -52,12 +54,25 @@ export default function App() {
   const [qcSurvey, setQcSurvey] = useState<number | null>(null);
   const [shortcuts, setShortcuts] = useState(false);
   const [overview, reloadOverview] = useOverview(species);
+  const counts = useCounts(prefs.notify);
 
   useEffect(() => {
     void api.species.list().then(setSpecies);
     void api.model.status().then(setModel);
   }, []);
   useKeys({ "?": () => setShortcuts(true) }, !!person);
+
+  // When a video of the open survey changes state (confirmed, counting, finished…), load the survey
+  // again so "not counted yet" and the pictures are right on every screen, not only the Report.
+  const openSurveyId = data?.survey.id;
+  const openSurveyCounts = counts
+    .filter((c) => c.surveyId === openSurveyId)
+    .map((c) => `${c.videoId}:${c.state}`)
+    .join();
+  useEffect(() => {
+    if (openSurveyId === undefined || !openSurveyCounts) return;
+    void api.surveys.get(openSurveyId).then((fresh) => setData((d) => (d?.survey.id === openSurveyId ? fresh : d)));
+  }, [openSurveyId, openSurveyCounts]);
 
   const summary = useMemo(
     () => (data ? summarize(data.frames, species, data.survey.threshold) : null),
@@ -113,7 +128,7 @@ export default function App() {
       if (prefs.notify) {
         const failed = r.files.filter((f) => f.state === "failed").length;
         const windows = opened.survey.windowsToConfirm;
-        new Notification(windows ? "TIDE: waiting for you" : "TIDE: counting finished", {
+        new Notification(windows ? "TIDE: waiting for you" : "TIDE: files processed", {
           body: windows
             ? `${form.site || "Your survey"}: confirm the analysis window of ${plural(windows, "video")} so TIDE can count the fish.`
             : `${form.site || "Your survey"} is ready${failed ? ` · ${plural(failed, "file")} couldn't be read` : ""}.`,
@@ -189,6 +204,7 @@ export default function App() {
               hasSurvey={!!data}
               toCheck={summary ? summary.toReview + summary.toLabel : 0}
             />
+            <CountingBanner counts={counts} busy={busy} onOpen={(id) => void openSurvey(id)} />
             <main className="min-h-0 flex-1 overflow-auto">
               {page === "upload" && (
                 <UploadView
@@ -215,9 +231,9 @@ export default function App() {
                   {finished && (
                     <div className="px-10 pt-6">
                       <Alert
-                        tone={failed.length ? "warning" : "success"}
-                        icon={failed.length ? "⚠" : "✓"}
-                        title={`${windowsToConfirm ? "Processing finished" : "Counting finished"}${failed.length ? `, but ${plural(failed.length, "file")} couldn't be used` : ""}`}
+                        tone={failed.length || windowsToConfirm ? "warning" : "success"}
+                        icon={failed.length || windowsToConfirm ? "⚠" : "✓"}
+                        title={`${windowsToConfirm ? "One more step: no fish have been counted yet" : "Files processed"}${failed.length ? `, and ${plural(failed.length, "file")} couldn't be used` : ""}`}
                         action={
                           <button className={btnGhost} onClick={() => setFinished(null)}>
                             Dismiss
@@ -227,8 +243,8 @@ export default function App() {
                         {failed.length
                           ? failed.map((f) => `${f.name}: ${f.detail}`).join(" · ")
                           : windowsToConfirm
-                            ? `Next: confirm the analysis window of ${plural(windowsToConfirm, "video")} below. No fish are counted until you do.`
-                            : `${plural(finished.length, "file")} counted.`}
+                            ? `Confirm the analysis window of ${plural(windowsToConfirm, "video")} below. No fish are counted until you do.`
+                            : `${plural(finished.length, "file")} processed.`}
                       </Alert>
                     </div>
                   )}

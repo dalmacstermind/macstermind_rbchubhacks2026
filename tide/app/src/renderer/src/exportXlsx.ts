@@ -83,7 +83,8 @@ export async function buildWorkbook(opts: {
 }): Promise<ArrayBuffer> {
   const { data, summary: s, species, open, videos, person, results } = opts;
   const { survey, frames } = data;
-  const openTexts = [...open.map((o) => o.text), ...windowOpenItems(videos)];
+  // windowOpenItems words the unconfirmed windows for the Read me sheet, so they aren't listed twice.
+  const openTexts = [...open.filter((o) => o.key !== "window").map((o) => o.text), ...windowOpenItems(videos)];
   const draft = openTexts.length > 0;
   const wb = new ExcelJS.Workbook();
   wb.creator = "TIDE";

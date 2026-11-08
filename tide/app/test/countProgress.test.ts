@@ -56,3 +56,12 @@ describe("counting progress", () => {
     expect(timeLeft(60)).toBe("About 1 minute left");
   });
 });
+
+describe("stage from the status text", () => {
+  it("drops the percentage and time left that the ring already shows", async () => {
+    const { stageOf } = await import("../src/renderer/src/components/CountProgress");
+    expect(stageOf("Identifying the species: 93% · less than a minute left")).toBe("Identifying the species");
+    expect(stageOf("Counting the points: 5%")).toBe("Counting the points");
+    expect(stageOf("Loading the models")).toBe("Loading the models");
+  });
+});

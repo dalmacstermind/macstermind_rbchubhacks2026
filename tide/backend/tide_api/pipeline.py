@@ -112,6 +112,24 @@ def estimate_clarity(picture: Path) -> float | None:
     return None
 
 
+# Too early in a count, the time so far says little about the time left.
+MIN_FRACTION_FOR_ESTIMATE = 0.02
+
+
+def count_progress_text(fraction: float, elapsed_s: float, stage: str = "Counting the points") -> str:
+    """What staff read while a video is counted: what it's doing, the percentage and, once it means
+    something, the time left. e.g. "Identifying the species: 93% · less than a minute left"."""
+    text = f"{stage}: {int(fraction * 100)}%"
+    if fraction < MIN_FRACTION_FOR_ESTIMATE or elapsed_s <= 0:
+        return text
+    left_s = elapsed_s * (1 - fraction) / fraction
+    if left_s < 60:
+        return f"{text} · less than a minute left"
+    hours, minutes = divmod(round(left_s / 60), 60)
+    left = f"{hours} h {minutes} min" if hours else f"{minutes} min"
+    return f"{text} · about {left} left"
+
+
 @cache
 def _importable(module: str) -> bool:
     """True if a Python package is installed. find_spec looks for it without importing it (importing
@@ -685,9 +703,10 @@ class Jobs:
             Path(old).unlink(missing_ok=True)
         self.db.set_count_state(video_id, "running", "Loading the models", 0)
         analyser = VISION.analyser(look_closer=req.look_closer, tracker=req.tracker)
-        started = time.monotonic()
         out_dir = self.surveys_dir() / str(v["survey_id"])
         key = window.video_id
+
+        started = time.monotonic()  # after the models loaded, so loading them doesn't skew the time left
 
         def progress(fr: float):
             if run.stop.is_set():  # a stopped count must not write "Counting…" over "stopped"
@@ -695,9 +714,10 @@ class Jobs:
             stage = ("Searching the pictures for fish" if fr < SEARCH_SHARE else
                      "Identifying the species" if fr < 0.99 else "Saving the results")
             spent = time.monotonic() - started
-            # Time left from the pace so far; only once there's enough to go on (and never negative).
-            eta = max(0.0, spent * (1 - fr) / fr) if fr >= 0.05 and spent >= 5 else None
-            self.db.set_count_state(video_id, "running", stage, round(fr * 100, 1), eta)
+            # Time left from the pace so far (the stages are weighted by measured time, so it holds up).
+            eta = spent * (1 - fr) / fr if fr >= MIN_FRACTION_FOR_ESTIMATE and spent > 0 else None
+            self.db.set_count_state(video_id, "running", count_progress_text(fr, spent, stage), round(fr * 100, 1),
+                                    None if eta is None else max(0.0, eta))
 
         clip_dir = out_dir / "clips" / key
         saved: list[Path] = []

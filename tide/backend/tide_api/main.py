@@ -26,7 +26,7 @@ from tide.detect import ModelMissingError
 
 from . import pipeline, survey_results
 from .pipeline import Jobs, model_status
-from .schemas import (AnalysisRequest, DetectionPatch, EvaluationIn, EvaluationOut, Frame, Health, Job, LabelIn,
+from .schemas import (AnalysisRequest, CountStatus, DetectionPatch, EvaluationIn, EvaluationOut, Frame, Health, Job, LabelIn,
                       LabelResult, ModelStatus, Person, PointPatch, ProtocolCheck, ProtocolSettings,
                       ProtocolSettingsState, QcCountIn, QcData, Reference, ReferenceFromDetection, ReferencesIn,
                       Reidentified, Species, SpeciesIn, SpeciesPatch, Storage, SurveyData, SurveyInfo, SurveyPatch,
@@ -248,6 +248,12 @@ def cancel_analysis(job_id: str):
 
 
 # ── Surveys ──
+
+@app.get("/counts", response_model=list[CountStatus], tags=["surveys"])
+def list_counts():
+    """How every video's count is going, so the app can show progress and say when a count ends."""
+    return db.count_statuses()
+
 
 @app.get("/surveys", response_model=list[SurveyInfo], tags=["surveys"])
 def list_surveys():

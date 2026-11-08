@@ -158,6 +158,8 @@ export const api: TideApi = {
     videos: (id) => http<Video[]>("GET", `/surveys/${id}/videos`),
   },
 
+  counts: { list: () => http("GET", "/counts") },
+
   videos: {
     // Who's working goes in a header. HTTP headers can't carry letters like "ë",
     // so the name is URL-encoded here and decoded by the back end.
