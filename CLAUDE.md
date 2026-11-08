@@ -128,7 +128,10 @@ tide/
                                  LabelCanvas, LabelPicker, NewSpeciesForm, TrendsChart…
                                  (today: SuggestionButtons, ReferencePictures, UseAsReference, MatchAgainButton,
                                  ProtocolResults, VideoResultCard, PointTable, PointEditor, ImageResultsTable,
-                                 EvaluationPanel, UnknownGallery, LabelPicker, LabelCanvas)
+                                 EvaluationPanel, UnknownGallery, LabelPicker, LabelCanvas,
+                                 Splash + OceanScene: start-up animation shown until the back end is ready;
+                                 ReefScene, SeaFloor, Critters, SurveyCamera: its "reef" look, used at start-up;
+                                 the plainer "classic" look is still available via Splash's `variant`)
       views/                     Upload, Processing, Results, ImageResults, Label, QC,
                                  Trends, Species, Settings, People
                                  (today: Report shows the protocol results; Label is the Label page)
