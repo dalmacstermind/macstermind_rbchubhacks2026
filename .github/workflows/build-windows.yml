@@ -6,20 +6,24 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    # Pushing a build/... branch builds it too (workflow_dispatch only works once this is on main)
+    branches: ["build/**"]
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          lfs: true # in case fish.onnx is stored with Git LFS
+          lfs: true # model weights and reference pictures are stored with Git LFS
 
-      # 1. Back end → backend/dist/tide-api/tide-api.exe
+      # 1. Back end → tide/backend/dist/tide-api/tide-api.exe
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tide/backend/requirements*.txt
       - name: Build back end
-        working-directory: backend
+        working-directory: tide/backend
         run: |
           python -m pip install -r requirements-dev.txt
           python -m pytest -q
@@ -30,9 +34,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: tide/app/package-lock.json
       - name: Build app and installer
-        working-directory: app
+        working-directory: tide/app
         run: |
           npm ci
           npm test
@@ -41,4 +45,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: TIDE-Windows-installer
-          path: app/release/*.exe
+          path: tide/app/release/*.exe
