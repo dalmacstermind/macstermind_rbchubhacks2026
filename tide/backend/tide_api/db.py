@@ -298,8 +298,9 @@ class Database(ProtocolStore):
     def count_statuses(self) -> list[CountStatus]:
         """Every video that has been queued for counting, with how that count is going."""
         return [CountStatus(video_id=r["id"], survey_id=r["survey_id"], site=r["site"], file_name=r["file_name"],
-                            state=r["count_state"], detail=r["count_detail"] or "")
-                for r in self.all("SELECT v.id, v.survey_id, v.file_name, v.count_state, v.count_detail, s.site "
+                            state=r["count_state"], detail=r["count_detail"] or "", percent=r["count_percent"])
+                for r in self.all("SELECT v.id, v.survey_id, v.file_name, v.count_state, v.count_detail, "
+                                  "v.count_percent, s.site "
                                   "FROM videos v JOIN surveys s ON s.id = v.survey_id "
                                   "WHERE COALESCE(v.count_state, '') <> '' ORDER BY v.id")]
 

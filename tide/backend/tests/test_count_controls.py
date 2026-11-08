@@ -93,6 +93,7 @@ def test_survey_and_counts_say_what_is_not_counted_yet(tmp_path, monkeypatch, sy
     assert (s["videosToCount"], s["videosCounting"]) == (0, 0)
     row = next(c for c in client.get("/counts").json() if c["surveyId"] == sid)
     assert row["state"] == "done" and row["fileName"] and "points" in row["detail"]
+    assert row["percent"] is None  # a percentage only while counting
 
 
 @pytest.mark.parametrize("fraction, elapsed, expected", [

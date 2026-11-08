@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileStatus, ModelStatus, Person, PickedFile, QcData, SurveyData } from "../../shared/api";
 import { summarize, type Detection, type Species } from "../../shared/survey";
 import { api } from "./api";
-import { useCounts } from "./counts";
+import { taskbarProgress, useCounts } from "./counts";
 import { notifyDesktop } from "./notifications";
 import { qcState, useOverview } from "./overview";
 import { usePrefs } from "./prefs";
@@ -182,6 +182,12 @@ export default function App() {
   const who = person ?? NOBODY;
 
   const busy = page === "processing";
+  // The taskbar icon follows the count, so it's visible with TIDE minimized. While files are being
+  // checked that screen uses the taskbar itself, and this takes over again when it closes.
+  const taskbar = taskbarProgress(counts);
+  useEffect(() => {
+    if (!busy) window.desktop.setProgress(taskbar);
+  }, [busy, taskbar]);
   const failed = finished?.filter((f) => f.state !== "done") ?? [];
   // Videos are only counted after a person confirms their analysis window, so "finished" isn't the end.
   const windowsToConfirm = data?.survey.windowsToConfirm ?? 0;

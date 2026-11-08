@@ -134,7 +134,7 @@ The window is proposed while a survey is processed (a later start if sediment ha
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/surveys/{id}/videos` | | `Video[]`. `404` if the survey doesn't exist |
-| GET | `/counts` | | `CountStatus[]`: `{videoId, surveyId, site, fileName, state, detail}` |
+| GET | `/counts` | | `CountStatus[]`: `{videoId, surveyId, site, fileName, state, detail, percent}` (`percent`: 0–100 while running, otherwise `null`) |
 | PATCH | `/videos/{id}` | `{windowStartS, windowEndS}` + header `X-TIDE-User: <URL-encoded name>` | `Video`. `400` if the person is missing or not on the people list; `404` no such video; `422` with a plain-English reason if the times break the protocol or the video is too short |
 
 Times are checked against the protocol: start no earlier than the trim (60 s), no later than the trim

@@ -1,4 +1,4 @@
-// How a video's point counting is going, with a button to stop it or to count again.
+// How a video's point counting ended, with a button to stop it or to count again (CountProgress shows it while running).
 // Shown in the analysis window box (WindowConfirm) once the window is confirmed.
 // Stopping keeps nothing of the stopped count; "Count again" counts the same confirmed window from the start.
 import { useState } from "react";
@@ -45,7 +45,6 @@ export function CountControls({
   return (
     <>
       {confirmNode}
-      {counting && <Chip tone="working">{v.countDetail || "Counting…"}</Chip>}
       {v.countState === "failed" && <Chip tone="failed">{v.countDetail}</Chip>}
       {v.countState === "done" && v.countDetail && <Chip tone="done">{v.countDetail}</Chip>}
       {v.countState === "stopped" && (
