@@ -5,6 +5,7 @@ uvicorn>=0.30
 opencv-python-headless==5.0.0.93   # read video frames, write fallback clips (Apache 2.0)
 numpy==2.2.6                       # (BSD-3-Clause)
 PyYAML==6.0.3                      # config/*.yaml (MIT)
+imageio-ffmpeg==0.8.1              # FFmpeg for context clips (wrapper BSD-2-Clause; the FFmpeg inside is GPL-3.0, see docs/LICENCES.md)
 # Vision pipeline (tide/detect.py, species.py, track.py). Exact versions tested together.
 # PyTorch's CUDA build also runs on CPU (CLAUDE.md, Packaging); it comes from the PyTorch index.
 --extra-index-url https://download.pytorch.org/whl/cu118
