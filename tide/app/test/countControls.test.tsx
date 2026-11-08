@@ -41,7 +41,7 @@ const button = (text: string) =>
 describe("CountControls", () => {
   it("stops a running count after asking first", async () => {
     const onChanged = show(video({ countState: "running", countDetail: "Counting the points: 5%" }));
-    expect(host.textContent).toContain("Counting the points: 5%");
+    expect(host.textContent).not.toContain("Counting the points: 5%"); // CountProgress shows it, not a second chip
     act(() => button("Stop counting")!.click());
     expect(document.body.textContent).toContain("Nothing of this count is kept");
     expect(fake.stopCount).not.toHaveBeenCalled(); // nothing happens until the person says yes

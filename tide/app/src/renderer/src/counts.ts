@@ -7,6 +7,16 @@ import { notifyDesktop } from "./notifications";
 
 export const isCounting = (state: string) => state === "queued" || state === "running";
 
+// Windows shows a moving "busy" bar for any value above 1.
+const TASKBAR_BUSY = 2;
+
+/** What the taskbar icon shows: the running video's progress, "busy" while there's no percentage yet. */
+export function taskbarProgress(counts: CountStatus[]): number | null {
+  const running = counts.find((c) => c.state === "running");
+  if (running) return running.percent ? running.percent / 100 : TASKBAR_BUSY;
+  return counts.some((c) => c.state === "queued") ? TASKBAR_BUSY : null;
+}
+
 /** Counts that were going last time we checked and have now finished or failed. */
 export function countsThatEnded(before: Map<number, string>, now: CountStatus[]): CountStatus[] {
   return now.filter((c) => isCounting(before.get(c.videoId) ?? "") && (c.state === "done" || c.state === "failed"));

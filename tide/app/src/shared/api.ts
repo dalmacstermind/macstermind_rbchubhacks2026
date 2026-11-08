@@ -74,6 +74,7 @@ export type CountStatus = {
   fileName: string;
   state: "queued" | "running" | "done" | "failed" | "stopped";
   detail: string;
+  percent: number | null; // 0–100 while running
 };
 
 export type SurveyData = { survey: SurveyInfo; frames: Frame[] };
@@ -452,7 +453,7 @@ export type DesktopApi = {
   expand: (paths: string[]) => Promise<{ files: PickedFile[]; skipped: SkippedFile[] }>;
   saveXlsx: (suggestedName: string, data: ArrayBuffer) => Promise<string | null>;
   savePdf: (suggestedName: string) => Promise<string | null>;
-  /** Taskbar progress (0–1), or null to clear it. */
+  /** Taskbar progress (0–1), above 1 for a moving "busy" bar, or null to clear it. */
   setProgress: (fraction: number | null) => void;
   /** Tells Electron how many videos are being counted, so closing TIDE can warn first. */
   setCounting: (videos: number) => void;

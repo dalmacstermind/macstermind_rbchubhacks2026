@@ -173,6 +173,7 @@ class CountStatus(Model):
     file_name: str
     state: Literal["queued", "running", "done", "failed", "stopped"]
     detail: str = ""
+    percent: Optional[float] = None  # 0–100 while running
 
 
 class SurveyPatch(Model):
