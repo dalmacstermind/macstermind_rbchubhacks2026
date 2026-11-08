@@ -1,0 +1,128 @@
+# TIDE app settings (not protocol rules; those are in protocol.yaml).
+
+frames:
+  # Seeking in long camera videos can land a few frames off. We seek this many seconds before the
+  # start of each range, then read frames in order and use the decoder's timestamps.
+  seek_preroll_s: 1.0
+
+clips:
+  # Bundled FFmpeg binary, relative to this config folder (or an absolute path).
+  # null = no FFmpeg: clips are written with OpenCV instead (they may not play in the app).
+  ffmpeg_path: null
+  # libx264 makes clips that play in the app's video player (H.264). Needs a GPL FFmpeg build;
+  # see docs/LICENCES.md.
+  ffmpeg_codec: libx264
+  # Codec for the OpenCV fallback. mp4v always works but Chromium can't play it.
+  opencv_fourcc: mp4v
+
+# ── Vision pipeline (tide/detect.py, species.py, track.py, clarity.py) ──
+# Read by load_vision_config(). Thresholds are uncalibrated starting points: tune them on a
+# held-out video (CLAUDE.md, Data and evaluation rules) and change them here, never in code.
+
+models:
+  # Local model folder, relative to this config folder (or absolute). Nothing is downloaded at
+  # runtime: developers fetch weights once with `python -m tide.fetch_models`.
+  dir: ../models
+
+detect:
+  # Interim detector until a fine-tuned YOLOX exists: Community Fish Detector (RF-DETR, 1 class
+  # "fish"). See docs/LICENCES.md for its licence status.
+  checkpoint: cfd/cfd-rf-detr-medium-1024-2026.03.24.cp-011.20260706-release.pth
+  conf_threshold: 0.2       # the API returns every box at or above this (API.md, "Who decides what")
+  nms_iou: 0.5              # merging boxes from the original and the cleared-up picture
+  min_box_px: 6             # boxes narrower or shorter than this many pixels are dropped
+  # Pictures per second read from each subsample point's ±context_s range (protocol.yaml). The
+  # point's own moment is always included. More = better tracking, slower processing.
+  context_fps: 5
+  # "Ignore tiny specks" drops boxes smaller than this % of the picture. 0.01 % is about 14×14 px in a
+  # 1920×1080 picture. (It was 0.3 %, which removed most real fish in 4K survey footage: they are
+  # about 60×20 px, 0.06 % of the picture.)
+  speck_max_area_pct: 0.01
+  # "Look closer for small fish" (a survey option): also search the full-resolution picture in a
+  # grid of overlapping tiles. Finds more small, distant fish; about grid×grid+1 times slower.
+  look_closer_grid: 2
+
+species:
+  model_dir: bioclip-2      # BioCLIP 2 snapshot (open_clip format) inside models.dir
+  match_threshold: 0.70     # cosine similarity needed to suggest a species (uncalibrated)
+  margin: 0.03              # best species must beat the next one by this much
+  novelty_threshold: 0.45   # below this, the fish is a "Potential Novel Sighting" for expert review
+  top_k: 3                  # suggestions shown to staff
+  crop_padding: 0.12        # extra space around each box when cutting the crop
+  min_crop_px: 24           # crops smaller than this are too small to identify
+  # Default reference pictures (CC0 / CC-BY photos from iNaturalist) and their fingerprints, inside
+  # models.dir, in the repo through Git LFS. The list of photos, credits and checksums is
+  # config/reference_seed.json. TIDE adds them to the Species Registry on first start.
+  seed_dir: reference-seed
+
+track:
+  enabled: true             # ByteTrack across the sampled pictures of each video
+  lost_buffer_s: 2.0        # keep a lost fish's track this long
+  match_iou: 0.2            # box overlap needed to continue a track
+  activation_threshold: 0.35  # a box must be at least this sure to start a new track
+  tracker: bytetrack        # default tracker: bytetrack | ocsort (a survey can choose the other one)
+
+clarity:
+  # Clarity index (0–100) = weighted mean of these image measures, each scaled to 0–1.
+  # It is an image-based estimate, not turbidity (CLAUDE.md, Clarity index).
+  weights:
+    contrast: 0.25
+    sharpness: 0.25
+    haze: 0.20
+    colour: 0.15
+    particles: 0.15
+  # Suggested visibility category from the clarity index: one boundary between each pair of
+  # protocol.yaml visibility.categories (3 boundaries for 4 categories). UNCALIBRATED: set them
+  # from frames where staff recorded a category. Staff confirm the category; only that is exported.
+  category_thresholds: [30, 50, 70]
+  review_threshold: 25      # below this, the point needs review and gets a "low visibility" note
+
+# Objects that don't move during a point's context clip (pole markings, rocks, sometimes a resting
+# fish) are not counted automatically: the point needs review and a person decides (conservative).
+stationary:
+  min_sightings: 5          # seen in at least this many pictures…
+  min_span_s: 3             # …spread over at least this many seconds…
+  max_shift_pct: 0.5        # …and its centre never moved more than this % of the picture
+
+# Moving fish the detector misses (stationary cameras): see tide/motion.py. Distances are pixels
+# of a picture work_width wide. UNCALIBRATED: check candidates on the Label page before trusting them.
+motion:
+  enabled: true
+  work_width: 1920
+  threshold_sigma: 4        # a pixel is "moving" when it differs from the background by 4× its usual noise
+  min_area_px: 25           # blob size that can be a fish
+  max_area_px: 6000
+  link_px: 60               # how far a fish may move between two pictures (at detect.context_fps)
+  min_frames: 3             # seen in at least this many pictures…
+  min_travel_px: 15         # …and travelled at least this far (seabed flicker doesn't travel)
+  confidence: 0.3           # below the usual certainty threshold: a person confirms before it counts
+  max_moving_fraction: 0.05 # more than 5 % of the picture changing = camera moved: skip that clip
+
+# Per-picture quality filter (tide/quality.py): is this picture clear enough to find fish?
+# UNCALIBRATED placeholders from earlier test footage: calibrate per site.
+quality:
+  analysis_width: 640
+  clear_min_score: 55       # 0–100 score: clear ≥ 55, moderate ≥ 38, muddy ≥ 22, below that "obscured"
+  moderate_min_score: 38
+  muddy_min_score: 22
+  blur_threshold: 60        # sharpness (Laplacian variance) below this = blurred
+  min_contrast: 18          # grey-level standard deviation below this = low contrast
+
+# Static pictures (tide/static_filter.py): skip the detector and reuse the last boxes.
+static_filter:
+  enabled: true
+  conservative: true        # smaller changes already count as "not static"; re-check at least every 1 s
+  static_diff_threshold: 1.2   # mean grey-level change below this…
+  local_change_fraction: 0.02  # …and no part of the picture with more than 2 % clearly changed pixels…
+  ssim_threshold: 0.985        # …and structurally (SSIM) this similar = static
+  periodic_interval_s: 2.0     # long static runs are searched again this often
+  comparison_width: 320
+
+# Drift filter (tide/drift.py): tracks that move exactly with the water need a person.
+drift:
+  enabled: true
+  flag_threshold: 0.75          # similarity of the track's motion to the local water flow (0–1)
+  min_background_motion_px: 0.6 # the water must visibly move (at 320 px width) for this to count
+
+label:
+  match_iou: 0.5            # a drawn box overlapping an existing fish this much relabels it (no double count)
