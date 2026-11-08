@@ -6,9 +6,10 @@ import type { LabelChoice, Person, SurveyData, Unknowns } from "../../../shared/
 import type { Species } from "../../../shared/survey";
 import { api } from "../api";
 import { LabelCanvas } from "../components/LabelCanvas";
-import { LabelPicker } from "../components/LabelPicker";
+import { LabelPanel } from "../components/LabelPanel";
+import { NORMAL_LOOK } from "../components/PictureControls";
 import { UnknownGallery, labelText } from "../components/UnknownGallery";
-import { Header, btnGhost, btnLink, plural } from "../ui";
+import { Header, Modal, btnGhost, btnLink, plural } from "../ui";
 import { AddSpecies } from "./Review";
 
 type Show = "todo" | "labelled" | "all";
@@ -34,6 +35,7 @@ export function LabelView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
   const [drawn, setDrawn] = useState<Drawn | null>(null);
+  const [look, setLook] = useState(NORMAL_LOOK); // brightness and contrast carry over from fish to fish
   const [asReference, setAsReference] = useState(false);
   const [adding, setAdding] = useState<string | null>(null); // null = closed; text = name typed so far
   const [message, setMessage] = useState("");
@@ -48,9 +50,15 @@ export function LabelView({
     (f) => (!file || f.source.file === file) && (show === "all" || (show === "todo") === !f.label),
   );
   const card = unknowns?.fish.find((f) => f.trackId === open) ?? null;
-  const targets = selected.size ? [...selected] : open ? [open] : [];
+  const targets = open ? [open] : [...selected];
 
-  // Apply one label to the drawn box, or to every ticked card (bulk), or to the open card.
+  // Stable on purpose: the dialog moves keyboard focus whenever its onClose changes.
+  const closeCard = useCallback(() => {
+    setOpen(null);
+    setDrawn(null);
+  }, []);
+
+  // Apply one label to the drawn box, or to the open card, or to every ticked card (bulk).
   const apply = async (choice: LabelChoice) => {
     setMessage("");
     try {
@@ -62,7 +70,7 @@ export function LabelView({
         ...(drawn ? { frameId: drawn.frameId, box: drawn.box } : { trackIds: targets }),
       });
       setMessage(`Labelled ${plural(drawn ? 1 : targets.length, "fish", "fish")}. ${r.remaining} still to label.`);
-      setSelected(new Set());
+      if (!open) setSelected(new Set());
       setDrawn(null);
       load();
       onChanged();
@@ -79,6 +87,50 @@ export function LabelView({
 
   return (
     <>
+      {card && (
+        <Modal
+          title="Look closely and label this fish"
+          wide="full"
+          onClose={closeCard}
+          footer={
+            <button className={btnGhost} onClick={closeCard}>
+              Close
+            </button>
+          }
+        >
+          <div className="grid grid-cols-[minmax(0,1fr)_340px] gap-6">
+            <LabelCanvas
+              key={card.trackId}
+              frames={frames}
+              frameIds={card.frameIds}
+              startId={card.bestFrameId}
+              highlight={card.trackId}
+              look={look}
+              onLook={setLook}
+              pending={drawn}
+              onDraw={(frameId, box) => setDrawn({ frameId, box })}
+            />
+            <LabelPanel
+              title={
+                drawn
+                  ? "Label the box you drew"
+                  : card.label
+                    ? `Labelled: ${labelText(card, species)}`
+                    : card.reason || "What is this?"
+              }
+              species={species}
+              suggestions={drawn ? [] : card.suggestions}
+              onChoose={(c) => void apply(c)}
+              onAddSpecies={(typed) => setAdding(typed ?? "")}
+              insideDialog
+              asReference={asReference}
+              onAsReference={setAsReference}
+              onUndo={card.label && !drawn ? () => void undo(card.label!.id) : undefined}
+              message={message}
+            />
+          </div>
+        </Modal>
+      )}
       {adding !== null && (
         <AddSpecies
           initialName={adding}
@@ -138,54 +190,32 @@ export function LabelView({
               onOpen={(id) => {
                 setOpen(id);
                 setDrawn(null);
+                setMessage("");
               }}
             />
           )}
         </div>
 
+        {/* Hidden while a card's dialog is open, so keys 1–3 can't reach two pickers. */}
         <aside className="space-y-4">
-          {card ? (
-            <LabelCanvas
-              key={card.trackId}
-              frames={frames}
-              frameIds={card.frameIds}
-              startId={card.bestFrameId}
-              highlight={card.trackId}
-              onDraw={(frameId, box) => setDrawn({ frameId, box })}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">Click a card to see the fish in its picture.</p>
-          )}
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <div className="mb-2 font-display font-semibold">
-              {drawn
-                ? "Label the box you drew"
-                : selected.size
-                  ? `Label ${plural(selected.size, "selected fish", "selected fish")}`
-                  : card
-                    ? card.label
-                      ? `Labelled: ${labelText(card, species)}`
-                      : card.reason || "What is this?"
-                    : "Choose a fish"}
-            </div>
-            <LabelPicker
+          <p className="text-sm text-muted-foreground">
+            Click a card to see the fish large and draw a missed one. Tick several cards to give them one label.
+          </p>
+          {!card && (
+            <LabelPanel
+              title={
+                selected.size ? `Label ${plural(selected.size, "selected fish", "selected fish")}` : "Choose a fish"
+              }
               species={species}
-              suggestions={selected.size || drawn ? [] : (card?.suggestions ?? [])}
+              suggestions={[]}
               onChoose={(c) => void apply(c)}
               onAddSpecies={(typed) => setAdding(typed ?? "")}
-              disabled={!drawn && !targets.length}
+              disabled={!selected.size}
+              asReference={asReference}
+              onAsReference={setAsReference}
+              message={message}
             />
-            <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={asReference} onChange={(e) => setAsReference(e.target.checked)} />
-              Use as reference picture (not for test videos used to measure the AI)
-            </label>
-            {card?.label && (
-              <button className={`${btnGhost} mt-3`} onClick={() => void undo(card.label!.id)}>
-                Undo this label
-              </button>
-            )}
-            {message && <p className="mt-3 text-sm text-muted-foreground">{message}</p>}
-          </div>
+          )}
         </aside>
       </div>
     </>

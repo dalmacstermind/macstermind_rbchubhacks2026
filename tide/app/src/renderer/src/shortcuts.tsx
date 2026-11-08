@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import { Kbd, Modal, btnPrimary } from "./ui";
 
-export function useKeys(map: Record<string, (e: KeyboardEvent) => void>, enabled = true) {
+export function useKeys(map: Record<string, (e: KeyboardEvent) => void>, enabled = true, insideDialog = false) {
   const ref = useRef(map);
   ref.current = map;
   useEffect(() => {
@@ -10,7 +10,9 @@ export function useKeys(map: Record<string, (e: KeyboardEvent) => void>, enabled
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, select, [contenteditable=true]") || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (document.querySelector("[role=dialog]") && e.key !== "Escape") return; // a dialog is open
+      // A dialog is open. Keys belonging to something inside that dialog still work, unless another opened on top.
+      const dialogs = document.querySelectorAll("[role=dialog]").length;
+      if (dialogs > (insideDialog ? 1 : 0) && e.key !== "Escape") return;
       const fn = ref.current[e.key] ?? ref.current[e.key.toLowerCase()];
       if (fn) {
         e.preventDefault();
@@ -19,7 +21,7 @@ export function useKeys(map: Record<string, (e: KeyboardEvent) => void>, enabled
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled]);
+  }, [enabled, insideDialog]);
 }
 
 const SECTIONS: { title: string; keys: [string[], string][] }[] = [

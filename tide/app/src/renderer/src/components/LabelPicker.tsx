@@ -36,12 +36,14 @@ export function LabelPicker({
   onChoose,
   onAddSpecies,
   disabled,
+  insideDialog = false,
 }: {
   species: Species[];
   suggestions: { speciesId: string; score: number }[];
   onChoose: (choice: LabelChoice) => void;
   onAddSpecies: (typedName?: string) => void;
   disabled?: boolean;
+  insideDialog?: boolean; // shown in a dialog: keys 1–3 still work there
 }) {
   const [value, setValue] = useState("");
   const fish = species.filter((s) => s.kind !== "invertebrate" && s.id !== UNKNOWN);
@@ -71,6 +73,8 @@ export function LabelPicker({
     Object.fromEntries(
       top.map((s, i) => [String(i + 1), () => !disabled && choose({ action: "species", species: s.speciesId })]),
     ),
+    true,
+    insideDialog,
   );
 
   // Everything the label can be, grouped like the old dropdown: fish species (recently used first),
