@@ -186,28 +186,68 @@ Look at the terminal where you ran `npm run dev` for the error, then quit with C
 
 ## Building the Windows installer
 
-Staff use Windows, so the installer is built on Windows: the back end with PyInstaller, then the app with electron-builder.
+Staff use Windows, so the installer is built on Windows in two steps:
 
-**Easiest: GitHub Actions (no Windows PC needed).** Push to GitHub, open
-**Actions → Build Windows installer → Run workflow**, and download `TIDE-Setup-0.1.0.exe`
-from the finished run.
+1. **Back end → `tide-api.exe`** with PyInstaller, using the recipe in
+   [`tide/backend/tide-api.spec`](tide/backend/tide-api.spec). It makes one folder,
+   `tide/backend/dist/tide-api/`, with the config, the models (`models/`), FFmpeg and the ML
+   packages (PyTorch, rfdetr, open_clip, transformers) inside `_internal/`.
+2. **App + installer → `TIDE-Setup-0.1.0.exe`** with electron-builder
+   ([`tide/app/electron-builder.yml`](tide/app/electron-builder.yml)), which copies the folder from
+   step 1 into the installer. The installed app starts `tide-api.exe` itself (no window shows).
 
-**Or on a Windows PC:**
+### Easiest: GitHub Actions (no Windows PC needed)
+
+The workflow is [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml). It
+installs the back end, runs the back-end and app tests, then builds the installer. It runs when you:
+
+- **push a branch whose name starts with `build/`** (for example `build/windows-installer`), or
+- **push a tag starting with `v`** (for example `v0.1.0`), or
+- click **Actions → Build Windows installer → Run workflow** (only once the workflow file is on `main`).
+
+The installer is built from the code **on that branch or tag**, so commit and push your changes first.
+
+**To download the `.exe`:** open the finished run in the **Actions** tab, scroll to **Artifacts**,
+download **TIDE-Windows-installer** (a `.zip`) and unzip it. Or from a terminal:
+
+```bash
+gh run download <run-id> -n TIDE-Windows-installer -D TIDE-installer
+```
+
+### Or on a Windows PC
+
+From the repo root. Needs **Python 3.11** (the back-end `.venv`, set up as in "Run it" above), Node 22, and about
+**15 GB of free disk space** (the back-end folder alone is over 5 GB). Model files come through
+Git LFS: run `git lfs pull` first.
 
 ```bat
-cd backend
+cd tide\backend
 .venv\Scripts\activate
+pip install -r requirements-dev.txt
 pyinstaller tide-api.spec --noconfirm
 cd ..\app
+npm ci
 npm run dist:win
 ```
 
-The installer appears in `app\release\`. It's unsigned, so Windows shows **"Windows protected
-your PC"**; click **More info → Run anyway**.
+The installer appears in `tide\app\release\`. To check the back end on its own before step 2:
+run `dist\tide-api\tide-api.exe --port 51999` and open `http://127.0.0.1:51999/health`.
+
+### Installing
+
+It's unsigned, so Windows shows **"Windows protected your PC"**; click **More info → Run anyway**.
 
 **Install it on a real Windows laptop and run one survey before the demo.**
 If Windows Defender complains about `tide-api.exe` (it happens with PyInstaller), that's the
 thing to sort out early.
+
+### Known problems
+
+- **Size.** The back end is over 5 GB (PyTorch's CUDA libraries ~3 GB, models ~1.8 GB). An NSIS
+  installer can't hold more than about 2 GB, so `npm run dist:win` may fail at the last step. Ways
+  out: the CPU-only PyTorch build (saves ~3 GB), or a different installer format.
+- **`*.spec` is ignored** by the root `.gitignore` (PyInstaller template); `tide-api.spec` has an
+  exception there. Keep it if you change that file.
 
 ## Notes for the integration team
 
@@ -215,11 +255,10 @@ thing to sort out early.
   installed, so stray packages make the app bigger.
 - The runtime is **PyTorch (CUDA build)**, per CLAUDE.md; it also runs on CPU. The packaged back end
   is several GB with the models, so check the NSIS size limit early (CLAUDE.md, Packaging).
-- Include FFmpeg in the back end for context clips that play in the app: PyInstaller needs
-  `collect_data_files("imageio_ffmpeg", subdir="binaries")` in `datas` (or `--collect-data imageio_ffmpeg`).
-  Its licence is GPL-3.0 (docs/LICENCES.md).
-- Ship the models next to the back end: `models.dir` in `config/app.yaml` is relative to the config
-  folder, so put `models/` beside `config/` (or add it to `datas` in `tide-api.spec`).
+- FFmpeg (for context clips that play in the app) and the models are bundled by `tide-api.spec`
+  (`collect_data_files("imageio_ffmpeg", subdir="binaries")`, and `config/` + `models/` side by side
+  in `_internal/`, because `models.dir` in `config/app.yaml` is relative to the config folder).
+  FFmpeg's licence is GPL-3.0 (docs/LICENCES.md).
 - The detector is the **Community Fish Detector (RF-DETR)** until a fine-tuned YOLOX exists. Its licence
   needs approval: see `docs/LICENCES.md`.
 - Error messages in `HTTPException` and `Job.error` are shown to staff, so keep them plain English.
