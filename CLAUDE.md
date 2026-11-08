@@ -38,8 +38,11 @@ The project does not invent a new method. When in doubt, do what the protocol sa
    Do **not** add Ultralytics YOLO (YOLOv8/YOLO11, AGPL-3.0) without team and client approval. Every new model, weight file, dataset or npm/pip dependency with an unusual
    licence must be added to `docs/LICENCES.md` before it is used. Electron, Recharts, ExcelJS,
    `@fontsource` (Sora, Manrope: SIL OFL) and PyInstaller are already in use and must be listed there.
-4. **Never commit media or client data.** No videos, images, ZIPs, extracted frames, or Coastal
-   Action spreadsheets in git. `data/` and `models/` are git-ignored.
+4. **Never commit media or client data.** No survey videos, survey images, ZIPs, extracted frames,
+   or Coastal Action spreadsheets in git. `data/` is git-ignored. Two exceptions, both through Git
+   LFS (`/.gitattributes`): the model weights in `models/`, and the openly licensed **default
+   reference pictures** in `models/reference-seed/` (only photos listed with their credit and
+   licence in `config/reference_seed.json`; never Coastal Action's footage or crops from it).
 5. **Conservative counting.** The protocol prefers undercounting to counting algae, sediment or
    bubbles. Uncertain detections become notes or review items, not counts.
 6. **Protocol values are settings, not constants.** Every protocol parameter comes from
@@ -158,6 +161,8 @@ tide/
       results.py                 survey results from stored rows: points, MeanCount, richness, image counts
       device.py                  GPU/CPU choice at start-up; one lock for all GPU work
       fetch_models.py            developer tool: put pinned, checksummed weights into models/ (never at runtime)
+      fetch_reference_images.py  developer tool: pick (--refresh) and fingerprint (--fingerprints) the default
+                                 reference pictures in models/reference-seed/ (never at runtime)
       count.py                   tolerance-window counting, MeanCount, richness, image counts
       clarity.py                 clarity index per frame/point/video; suggested visibility; pole bands (P2)
       trends.py                  per-video summaries for the Trends page
@@ -257,6 +262,21 @@ The species TIDE can name (`views/Species.tsx`). It is always called **Species R
 - Pictures are always served by the local backend (`/references/{id}/image?token=…`), never from
   the internet. Where a picture came from is stored with it (`species_references.survey_id`,
   `source_file`, `source_time`); pictures added before this show their old short note instead.
+- **Default reference pictures:** 25 per species that ships with TIDE (not "Unknown"), from iNaturalist
+  research-grade observations, **CC0 or CC-BY only**. `config/reference_seed.json` (committed) lists
+  every photo with its observation link, photographer credit, licence and SHA-256. The pictures
+  and their species-model fingerprints (`models/reference-seed/fingerprints.npz`, labelled with the
+  model name and pinned revision) are **in the repo through Git LFS**, so every PC has them after a
+  pull, with no download step. On start-up the backend adds them in the background
+  (`pipeline.seed_default_references`): with the saved fingerprints this takes seconds and works
+  **without the species model** (also in Demo mode). Saved fingerprints are used only if they match
+  the species model name and `BIOCLIP_REVISION`; otherwise the model works them out, or the picture
+  waits until the model is installed. Each picture is added once: `seeded_references` records it, so
+  a picture staff removed is not added back. To change the set (developers, with internet and the
+  species model): `python -m tide.fetch_reference_images --refresh`, then `--fingerprints`, and
+  commit the list, the pictures and `fingerprints.npz` together. They show "TIDE default pictures" as added by and the credit as
+  source. **Most are out-of-water or close-up photos, unlike survey footage: measure suggestions with
+  and without them on a held-out video before relying on them.**
 
 ## Adding media
 
@@ -730,6 +750,11 @@ npm install
 npm run dev            # opens TIDE and starts the backend from backend/.venv
 npm test               # Vitest
 npm run typecheck
+
+# Default reference pictures (already in the repo via Git LFS; only to check or change them)
+python -m tide.fetch_reference_images --verify  # check the pictures against their checksums
+python -m tide.fetch_reference_images --refresh # pick new photos (internet), then:
+python -m tide.fetch_reference_images --fingerprints  # needs the species model; commit all three
 
 # Benchmark
 python -m tide.benchmark --video <path to a local video>

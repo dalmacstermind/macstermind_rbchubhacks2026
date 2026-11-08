@@ -29,11 +29,14 @@ from tide import device
 from tide.analyse import IMAGE_EXT as AV_IMAGE_EXT
 from tide.analyse import Analyser, Cancelled, FileResult, read_image
 from tide.config import AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_vision_config
+from tide.fetch_models import BIOCLIP_REVISION
+from tide.fetch_reference_images import load_fingerprints
+from tide.fetch_reference_images import load_manifest as load_seed_manifest
 from tide.detect import CfdDetector, ModelMissingError
 from tide.frames import probe_video
 from tide.ingest import recorded_date, transect_stat
 from tide.protocol import AnalysisWindow, WindowProposal, propose_window
-from tide.species import BioClipEncoder, ReferenceIndex, crop_box, match
+from tide.species import BioClipEncoder, ReferenceIndex, crop_box, match, prepare_reference
 
 from .db import Database, ReferenceOrigin
 from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus, Reidentified
@@ -198,7 +201,9 @@ class Vision:
         species = self.encoder_name if self.species_installed else ""
         msg = (f"Fish detector: Community Fish Detector (RF-DETR). Species: {species or 'not installed'}"
                f" with {references} reference picture{'s' if references != 1 else ''}.")
-        if species and not references:
+        if SEEDING["running"]:
+            msg += f" Adding the default reference pictures: {SEEDING['done']} of {SEEDING['total']}…"
+        elif species and not references:
             msg += " Add reference pictures in Species so fish can be identified."
         return ModelStatus(ready=True, demo=False, name="Community Fish Detector + BioCLIP 2" if species else
                            "Community Fish Detector", message=msg, device=mode, gpu=device.gpu_name() or "",
@@ -252,24 +257,73 @@ def _need_species_model():
 
 
 def add_reference_pictures(db: Database, data_dir: Path, species_id: str, paths: list[str], by: str,
-                           origin: ReferenceOrigin | None = None) -> int:
+                           origin: ReferenceOrigin | None = None, source: str | None = None,
+                           vectors: list[np.ndarray] | None = None) -> int:
     """Add pictures as references for one species. Returns how many were added.
 
     origin: where the fish was seen (survey, video, time) when the picture is a crop from a survey;
-    None for pictures uploaded from this computer (then the file name is the source)."""
-    enc = _need_species_model()
+    None for pictures uploaded from this computer (then the file name is the source).
+    source: the text shown as where the picture came from, if not one of those (e.g. a photo credit).
+    vectors: fingerprints worked out earlier with the same species model, one per path (then the model
+    isn't needed here)."""
+    enc = None if vectors is not None else _need_species_model()
     out_dir = data_dir / "references" / species_id
     added = 0
-    for p in paths:
+    for i, p in enumerate(paths):
         src = Path(p)
-        img = read_image(src)  # raises a plain-English error for unreadable files
-        h, w = img.shape[:2]
-        if w > 1024:
-            img = cv2.resize(img, (1024, round(h * 1024 / w)), interpolation=cv2.INTER_AREA)
+        img = prepare_reference(read_image(src))  # read_image raises a plain-English error for bad files
         dest = _save_jpg(img, out_dir / f"{uuid.uuid4().hex}.jpg")
-        source = _origin_text(origin) if origin else src.name
-        db.add_reference(species_id, dest, enc.encode([img])[0], VISION.encoder_name, source, by, origin)
+        text = source or (_origin_text(origin) if origin else src.name)
+        vector = vectors[i] if vectors is not None else enc.encode([img])[0]
+        db.add_reference(species_id, dest, vector, VISION.encoder_name, text, by, origin)
         added += 1
+    return added
+
+
+SEED_BY = "TIDE default pictures"
+# Progress of adding the default reference pictures (shown in the model status while it runs).
+SEEDING = {"running": False, "done": 0, "total": 0}
+
+
+def seed_default_references(db: Database, data_dir: Path, manifest: dict[str, list[dict]] | None = None) -> int:
+    """Add the default reference pictures (downloaded with tide.fetch_reference_images) to the Species
+    Registry, once each. Runs in the background after start-up.
+
+    The pictures and their fingerprints ship with the code (models/reference-seed, through Git LFS), so
+    this takes seconds and doesn't need the species model. Saved fingerprints are used only if they
+    were made by the same species model and version; otherwise they're worked out with the model, or
+    the picture waits until the model is installed. Skips species staff removed and pictures added
+    before (also if staff removed them since). Returns how many were added."""
+    if VISION.cfg is None:
+        return 0
+    manifest = load_seed_manifest() if manifest is None else manifest
+    seed_dir = VISION.cfg.species.seed_dir
+    saved = load_fingerprints(seed_dir)
+    prints = saved.vectors if saved and saved.model == VISION.encoder_name and \
+        saved.revision == BIOCLIP_REVISION else {}
+    can_compute = VISION.species_installed
+    registry = {s.id for s in db.list_species()}
+    todo = [(sid, e) for sid, entries in manifest.items() if sid in registry for e in entries
+            if not db.seeded(f"inat:{e['photo_id']}") and (seed_dir / sid / e["file"]).is_file()
+            and (e["photo_id"] in prints or can_compute)]  # otherwise: wait for the species model
+    SEEDING.update(running=bool(todo), done=0, total=len(todo))
+    added = 0
+    try:
+        for sid, e in todo:
+            credit = f"iNaturalist photo {e['photo_id']} · {e['credit']}" if e.get("credit") else "iNaturalist"
+            try:
+                vector = prints.get(e["photo_id"])
+                add_reference_pictures(db, data_dir, sid, [str(seed_dir / sid / e["file"])], SEED_BY,
+                                       source=credit, vectors=None if vector is None else [vector])
+                added += 1
+            except (ValueError, OSError) as err:  # an unreadable picture never stops the rest
+                log.warning("Default reference picture %s skipped: %s", e["file"], err)
+            db.mark_seeded(f"inat:{e['photo_id']}", sid)
+            SEEDING["done"] += 1
+    finally:
+        SEEDING["running"] = False
+    if added:
+        log.info("Added %d default reference pictures", added)
     return added
 
 

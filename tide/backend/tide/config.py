@@ -298,6 +298,7 @@ class SpeciesConfig:
     top_k: int
     crop_padding: float
     min_crop_px: float
+    seed_dir: Path  # default reference pictures (downloaded by tide.fetch_reference_images), inside models.dir
 
 
 @dataclass(frozen=True)
@@ -431,6 +432,7 @@ def load_vision_config(path: Path | None = None) -> VisionConfig:
             top_k=int(_num(sp, "species.top_k", path, minimum=1)),
             crop_padding=_num(sp, "species.crop_padding", path, minimum=0),
             min_crop_px=_num(sp, "species.min_crop_px", path, minimum=1),
+            seed_dir=models_dir / _text(sp, "species.seed_dir", path),
         ),
         track=TrackConfig(
             enabled=enabled,
