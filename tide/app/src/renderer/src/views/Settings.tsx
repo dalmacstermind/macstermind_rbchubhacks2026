@@ -1,15 +1,31 @@
 // Settings: protocol settings (window, points, blind QC), people, and disk space.
 // Per-survey choices (certainty, sampling, clear-up, specks) are made on the New survey page.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type MutableRefObject, type ReactNode } from "react";
 import type { Person, Storage } from "../../../shared/api";
 import { api } from "../api";
 import { ProtocolSettingsPanel } from "../components/ProtocolSettingsPanel";
+import { UnsavedSettingsDialog } from "../components/UnsavedSettingsDialog";
 import { Header, btnLink, formatBytes, useConfirm } from "../ui";
+import { useProtocolForm } from "../useProtocolForm";
 
-export function SettingsView({ person }: { person: Person }) {
+/** Set while Settings has unsaved changes: call it instead of leaving, and it asks first. */
+export type LeaveGuard = (continueLeaving: () => void) => void;
+
+export function SettingsView({
+  person,
+  leaveGuard,
+}: {
+  person: Person;
+  leaveGuard: MutableRefObject<LeaveGuard | null>;
+}) {
   const [storage, setStorage] = useState<Storage | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [confirmNode, confirm] = useConfirm();
+  const protocol = useProtocolForm(person);
+  // What to do once the popup is answered (null: no popup). Kept in an object because React would
+  // call a plain function passed to a state setter.
+  const [leaving, setLeaving] = useState<{ go: () => void } | null>(null);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     void api.storage().then(setStorage);
     void api.people.list().then(setPeople);
@@ -17,9 +33,39 @@ export function SettingsView({ person }: { person: Person }) {
   const used = storage ? (storage.totalBytes - storage.freeBytes) / storage.totalBytes : 0;
   const low = storage !== null && storage.freeBytes < 20 * 1024 ** 3;
 
+  // After every render, tell the app whether leaving this screen needs the popup. Cleared when
+  // Settings closes, so the other screens are never held up.
+  const dirty = protocol.changes.length > 0;
+  useEffect(() => {
+    leaveGuard.current = dirty ? (go) => setLeaving({ go }) : null;
+    return () => {
+      leaveGuard.current = null;
+    };
+  });
+
+  const saveAndLeave = async () => {
+    setSaving(true);
+    const saved = await protocol.save();
+    setSaving(false);
+    if (saved) leaving?.go();
+    if (saved) setLeaving(null);
+  };
+
   return (
     <>
       {confirmNode}
+      {leaving && (
+        <UnsavedSettingsDialog
+          changes={protocol.changes}
+          person={person.name}
+          blocked={protocol.hasErrors}
+          error={protocol.error}
+          saving={saving}
+          onSave={() => void saveAndLeave()}
+          onDiscard={leaving.go}
+          onClose={() => setLeaving(null)}
+        />
+      )}
       <Header eyebrow="Tools" title="Settings" />
       {/* Two columns side by side: Storage and People on the left, Protocol settings on the right. */}
       <div className="grid grid-cols-1 items-start gap-6 px-10 py-8 lg:grid-cols-2">
@@ -59,7 +105,7 @@ export function SettingsView({ person }: { person: Person }) {
         </div>
 
         <Section title="Protocol settings">
-          <ProtocolSettingsPanel person={person} />
+          <ProtocolSettingsPanel person={person} form={protocol} />
         </Section>
       </div>
     </>
