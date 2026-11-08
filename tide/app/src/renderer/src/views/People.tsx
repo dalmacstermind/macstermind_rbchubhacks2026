@@ -1,6 +1,7 @@
-// "Who's working?" — shown when the app starts. No passwords: the name is saved with
+// "Who's working?" — a dialog over the (blurred, locked) app when it starts and when someone switches
+// person. It can't be closed without picking or adding a name. No passwords: the name is saved with
 // every check, label and QC count, and blind QC uses it to make sure a different person recounts.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Person } from "../../../shared/api";
 import { api } from "../api";
 import { Field, btnGhost, btnPrimary, initials } from "../ui";
@@ -13,6 +14,7 @@ export function WhoIsWorking({ onPick }: { onPick: (p: Person) => void }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [error, setError] = useState("");
+  const box = useRef<HTMLDivElement>(null);
   let last = "";
   try {
     last = localStorage.getItem(LAST) ?? "";
@@ -26,6 +28,16 @@ export function WhoIsWorking({ onPick }: { onPick: (p: Person) => void }) {
       if (!p.length) setAdding(true);
     });
   }, []);
+
+  // Once the names have loaded, put keyboard focus on a name card (the person who used this computer
+  // last, else the first card), so Enter picks it straight away. When the add-a-name form is open,
+  // its Name field takes focus instead (autoFocus).
+  useEffect(() => {
+    if (!people || adding) return;
+    (
+      box.current?.querySelector<HTMLElement>("[data-first-focus]") ?? box.current?.querySelector<HTMLElement>("button")
+    )?.focus();
+  }, [people, adding]);
 
   const pick = (p: Person) => {
     try {
@@ -49,14 +61,30 @@ export function WhoIsWorking({ onPick }: { onPick: (p: Person) => void }) {
   };
 
   if (!people) return null;
+  // Which card gets keyboard focus first: the person who used this computer last, else the first one.
+  const focusName = people.some((p) => p.name === last) ? last : people[0]?.name;
   return (
-    <div className="grid h-screen place-items-center overflow-auto bg-background px-6 text-foreground">
-      <div className="w-full max-w-2xl py-10 text-center">
+    // No Esc and no close button on purpose: the app stays locked until a name is chosen.
+    // Clicking the dimmed area around the dialog does nothing, and keeps keyboard focus in the dialog.
+    <div
+      className="fixed inset-0 z-50 grid place-items-center overflow-auto bg-background/30 px-6 py-10"
+      onMouseDown={(e) => e.target === e.currentTarget && e.preventDefault()}
+    >
+      <div
+        ref={box}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="who-title"
+        aria-describedby="who-desc"
+        className="tide-enter w-full max-w-2xl rounded-3xl border border-border bg-card p-8 text-center text-card-foreground shadow-2xl"
+      >
         <div className="mx-auto mb-6 grid h-14 w-14 place-items-center rounded-xl bg-gradient-ocean font-display text-2xl font-bold text-primary-foreground">
           T
         </div>
-        <h1 className="font-display text-3xl font-semibold">Who's working today?</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <h2 id="who-title" className="font-display text-3xl font-semibold">
+          Who's working today?
+        </h2>
+        <p id="who-desc" className="mt-2 text-sm text-muted-foreground">
           Your name is saved with your checks and QC counts. No password needed.
         </p>
 
@@ -65,8 +93,9 @@ export function WhoIsWorking({ onPick }: { onPick: (p: Person) => void }) {
             {people.map((p) => (
               <button
                 key={p.name}
+                data-first-focus={p.name === focusName ? "" : undefined}
                 onClick={() => pick(p)}
-                className={`flex w-40 flex-col items-center gap-2 rounded-2xl border bg-card p-5 outline-none transition hover:border-primary focus-visible:ring-2 focus-visible:ring-ring ${
+                className={`flex w-40 flex-col items-center gap-2 rounded-2xl border bg-background p-5 outline-none transition hover:border-primary focus-visible:ring-2 focus-visible:ring-ring ${
                   p.name === last ? "border-primary" : "border-border"
                 }`}
               >
@@ -83,7 +112,7 @@ export function WhoIsWorking({ onPick }: { onPick: (p: Person) => void }) {
         {adding ? (
           <form
             onSubmit={add}
-            className="mx-auto mt-8 max-w-sm space-y-4 rounded-2xl border border-border bg-card p-6 text-left"
+            className="mx-auto mt-8 max-w-sm space-y-4 rounded-2xl border border-border bg-background p-6 text-left"
           >
             <div className="font-display font-semibold">
               {people.length ? "Add a name" : "First time here? Add your name"}
