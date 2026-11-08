@@ -71,9 +71,11 @@ class ProtocolStore:
         self.run("UPDATE videos SET count_state = ?, count_detail = ? WHERE id = ?", state, detail, video_id)
 
     def unfinished_counts(self) -> list[int]:
-        """Videos whose counting was waiting or running when the back end last stopped."""
+        """Videos whose counting was waiting or running when the back end last stopped, the most
+        recently confirmed first (the one staff were most likely waiting for)."""
         return [r["id"] for r in self.all(
-            "SELECT id FROM videos WHERE count_state IN ('queued', 'running') ORDER BY id")]
+            "SELECT id FROM videos WHERE count_state IN ('queued', 'running') "
+            "ORDER BY confirmed_at DESC, id DESC")]
 
     def clear_video_counts(self, video_id: int):
         """Before counting a (re)confirmed window: remove the previous count's points, pictures and labels."""

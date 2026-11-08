@@ -31,12 +31,15 @@ def test_interrupted_counts_restart_and_new_confirmations_go_first(tmp_path: Pat
             all_done.set()
 
     jobs._count_one = count_one
-    assert jobs.resume_counts() == interrupted  # "done" videos aren't counted again
+    db.run("UPDATE videos SET confirmed_at = '2026-11-07 10:00:00' WHERE id = ?", interrupted[0])
+    db.run("UPDATE videos SET confirmed_at = '2026-11-07 11:00:00' WHERE id = ?", interrupted[1])
+    # Newest confirmation first; "done" videos aren't counted again.
+    assert jobs.resume_counts() == [interrupted[1], interrupted[0]]
     assert db.video_row(interrupted[0])["count_state"] == "queued"
     new = _video(db, "")
     jobs.count_video(new)  # a person confirmed this one while the old ones wait
     gate.set()
     assert all_done.wait(10)
-    # The worker may already have taken the first interrupted video; the new one still beats the second.
-    assert order.index(new) < order.index(interrupted[1])
+    # The worker may already have taken the first restarted video; the new one still beats the other.
+    assert order.index(new) < order.index(interrupted[0])
     assert finished not in order
