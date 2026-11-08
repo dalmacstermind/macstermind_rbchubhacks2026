@@ -12,8 +12,9 @@ import {
 import { api } from "../api";
 import { ExportMenu } from "../components/ExportMenu";
 import { MatchAgainButton } from "../components/MatchAgainButton";
+import { CountProgress } from "../components/CountProgress";
 import { NotCountedYet } from "../components/NotCountedYet";
-import { ProtocolResults } from "../components/ProtocolResults";
+import { ProtocolResults, type SurveyCountProgress } from "../components/ProtocolResults";
 import { SurveyDoneCard } from "../components/SurveyDoneCard";
 import { buildWorkbook } from "../exportXlsx";
 import type { QcState } from "../overview";
@@ -60,6 +61,7 @@ export function ReportView({
   const [saved, setSaved] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [counting, setCounting] = useState<SurveyCountProgress | null>(null); // pictures come when counting is done
   const open = openItems(s, qc ?? undefined, survey);
   // Videos wait for a person before they're counted, so an empty report often means "not looked at yet".
   const nothingCounted = survey.videosToCount > 0 && frames.length === 0;
@@ -166,10 +168,26 @@ export function ReportView({
           species={species}
           person={person}
           onCountingDone={onChanged}
+          onCountingChange={setCounting}
           version={frames.reduce((n, f) => n + f.detections.filter((d) => d.verified).length, frames.length)}
         />
 
-        {nothingCounted ? (
+        {nothingCounted && counting ? (
+          <div className="rounded-2xl border border-border bg-card p-10">
+            <div className="mx-auto max-w-md">
+              <CountProgress
+                state={counting.state}
+                percent={counting.percent}
+                detail={counting.detail}
+                etaS={counting.etaS}
+                size={112}
+              />
+              <p className="mt-4 text-center text-sm text-muted-foreground">
+                The pictures and their fish appear here when counting is done.
+              </p>
+            </div>
+          </div>
+        ) : nothingCounted ? (
           <NotCountedYet survey={survey} />
         ) : (
           <>

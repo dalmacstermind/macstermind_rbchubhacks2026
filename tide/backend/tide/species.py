@@ -25,7 +25,7 @@ import numpy as np
 
 from .config import SpeciesConfig
 from .detect import ModelMissingError
-from .device import GPU_LOCK, torch_device
+from .device import GPU_LOCK, half_is_fast, torch_device
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +122,7 @@ class BioClipEncoder:
         self.model = None
         self.preprocess = None
         self.dim: int | None = None
+        self.half = False  # fp16 on GPUs where it is faster (load)
 
     @property
     def available(self) -> bool:
@@ -138,14 +139,18 @@ class BioClipEncoder:
         with GPU_LOCK:
             model, _, preprocess = open_clip.create_model_and_transforms(f"local-dir:{self.cfg.model_dir.as_posix()}")
             model.eval().to(self.device)
-            if self.device == "cuda":
-                model = model.half()  # fp16 keeps BioCLIP 2 at ~1.7 GB of GPU memory
+            # fp16 halves GPU memory (~0.9 GB) but only GPUs with tensor cores run it faster; on a
+            # GTX 1650 Ti fp32 is ~4.5x faster (device.half_is_fast), so use whichever is quicker.
+            self.half = self.device == "cuda" and half_is_fast()
+            if self.half:
+                model = model.half()
             self.model, self.preprocess = model, preprocess
             with torch.no_grad():
                 from PIL import Image
                 dummy = preprocess(Image.new("RGB", (224, 224))).unsqueeze(0).to(self.device)
-                self.dim = int(model.encode_image(dummy.half() if self.device == "cuda" else dummy).shape[-1])
-        log.info("Loaded BioCLIP 2 from %s on %s (dim %s)", self.cfg.model_dir, self.device, self.dim)
+                self.dim = int(model.encode_image(dummy.half() if self.half else dummy).shape[-1])
+        log.info("Loaded BioCLIP 2 from %s on %s, %s (dim %s)", self.cfg.model_dir, self.device,
+                 "fp16" if self.half else "fp32", self.dim)
         return self
 
     def encode(self, crops_bgr: list[np.ndarray], batch_size: int = 16) -> np.ndarray:
@@ -160,6 +165,6 @@ class BioClipEncoder:
             batch = torch.stack([self.preprocess(Image.fromarray(cv2.cvtColor(c, cv2.COLOR_BGR2RGB)))
                                  for c in crops_bgr[i:i + batch_size]]).to(self.device)
             with GPU_LOCK, torch.no_grad():
-                feats = self.model.encode_image(batch.half() if self.device == "cuda" else batch).float()
+                feats = self.model.encode_image(batch.half() if self.half else batch).float()
             out.append(torch.nn.functional.normalize(feats, dim=-1).cpu().numpy().astype(np.float32))
         return np.concatenate(out)

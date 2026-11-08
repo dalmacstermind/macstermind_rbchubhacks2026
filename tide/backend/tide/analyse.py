@@ -15,6 +15,8 @@ embedded with BioCLIP 2 and matched against the registry's reference pictures.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor
+import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +31,7 @@ from .detect import Detection, Detector
 from .frames import iter_sampled_frames, probe_video
 from .drift import DriftFilter
 from .motion import find_moving_objects, small_grey
-from .quality import assess
+from .quality import QualityResult, assess
 from .static_filter import StaticFilter
 from .protocol import (AnalysisWindow, _require_confirmed, context_range, plan_short_window_points,
                        plan_subsample_points)
@@ -41,6 +43,11 @@ log = logging.getLogger(__name__)
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv"}
 CROPS_PER_TRACK = 5  # best crops kept per organism for species ID
+# Share of the progress bar for searching the pictures; species ID takes most of the rest. Measured on
+# the GTX 1650 Ti: species ID is about a third of the time, so a steady bar gives a fair time left.
+SEARCH_SHARE = 0.65
+IDENTIFY_CHUNK = 128  # crops per species-model call (progress is reported between calls)
+CROPS_PER_MOTION_TRACK = 2  # motion-only finds are small blobs: more crops cost time, not accuracy
 
 
 class Cancelled(Exception):
@@ -86,11 +93,12 @@ class FileResult:
 @dataclass
 class _TrackCrops:
     crops: list[tuple[float, np.ndarray]] = field(default_factory=list)  # (quality, crop)
+    limit: int = CROPS_PER_TRACK
 
     def add(self, quality: float, crop: np.ndarray) -> None:
         self.crops.append((quality, crop))
         self.crops.sort(key=lambda qc: -qc[0])
-        del self.crops[CROPS_PER_TRACK:]
+        del self.crops[self.limit:]
 
 
 def read_image(path: Path) -> np.ndarray:
@@ -152,11 +160,14 @@ class Analyser:
                       image_key: str, enhance: bool, crops: dict[str, _TrackCrops], pictures: list[Picture],
                       save_picture: Callable[[np.ndarray, str], Path], name: Callable[[int], str], role: str,
                       point_no: int | None, keep_empty: bool, cancelled: Callable[[], bool],
-                      tick: Callable[[], None], drift: DriftFilter | None = None) -> None:
+                      tick: Callable[[], None], drift: DriftFilter | None = None,
+                      seen: dict[int, tuple[QualityResult, list[Detection]]] | None = None) -> None:
         """Detect (and track) every picture from `sources`, keeping crops for species ID.
 
         Per picture: quality check → the cleared-up picture is only searched when
         the picture isn't clear → static pictures reuse the last boxes → detector → tracker → drift.
+        seen: pictures already searched in this video (by frame number). Points close together share
+        pictures (a short video's context windows overlap), and each picture is only searched once.
         """
         static = StaticFilter(self.cfg.static_filter) if tracker else None
         last: list[Detection] = []
@@ -164,12 +175,17 @@ class Analyser:
             if cancelled():
                 raise Cancelled
             img = _fit(raw, self.max_width)
-            qual = assess(img, self.cfg.quality)
-            is_static = bool(static and last is not None and static.is_static(img, t_s))
-            if is_static:  # same picture as before: carry the boxes over (the tracker keeps the same fish)
+            known = seen.get(frame_idx) if seen is not None else None
+            qual = known[0] if known else assess(img, self.cfg.quality)
+            is_static = bool(not known and static and static.is_static(img, t_s))
+            if known:  # searched already for an overlapping point: same boxes, new track ids
+                dets = [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in known[1]]
+            elif is_static:  # same picture as before: carry the boxes over (the tracker keeps the same fish)
                 dets = [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in last]
             else:
                 dets = self._detect(raw, img, frame_idx, t_s, enhance and qual.degraded)
+            if seen is not None and not known:
+                seen[frame_idx] = (qual, [Detection(frame_idx, t_s, d.box, d.cls, d.conf, None) for d in dets])
             last = dets
             dets = tracker.update(dets) if tracker else image_tracks(image_key, dets)
             if drift is not None:
@@ -215,14 +231,33 @@ class Analyser:
                 images[mb.frame_index] = read_image(pic.image_path)
             c = crop_box(images[mb.frame_index], d.box, max(self.cfg.species.crop_padding, 0.5), 4)
             if c is not None:
-                crops.setdefault(d.track_id, _TrackCrops()).add(_crop_quality(images[mb.frame_index], d), c)
+                crops.setdefault(d.track_id, _TrackCrops(limit=CROPS_PER_MOTION_TRACK)).add(
+                    _crop_quality(images[mb.frame_index], d), c)
 
     def _identify(self, pictures: list[Picture], crops: dict[str, _TrackCrops], index: ReferenceIndex,
-                  cancelled: Callable[[], bool]):
+                  cancelled: Callable[[], bool], on_progress: Callable[[float], None] | None = None):
+        """Species for every track. on_progress(0–1) reports how many crops have been encoded."""
         species: dict[str, SpeciesResult] = {}
         vectors: dict[str, np.ndarray] = {}
         best: dict[str, np.ndarray] = {}
-        for tid in sorted({d.track_id for p in pictures for d in p.detections}):
+        tids = sorted({d.track_id for p in pictures for d in p.detections})
+        # Every track's crops go through the species model together, in full batches (much faster
+        # than one small batch per track), then are split back per track.
+        flat = [(tid, c) for tid in tids if self.encoder is not None for _, c in crops.get(tid, _TrackCrops()).crops]
+        encoded = None
+        if flat:  # in chunks, so progress can be shown (species ID can take a minute)
+            parts = []
+            for i in range(0, len(flat), IDENTIFY_CHUNK):
+                if cancelled():
+                    raise Cancelled
+                parts.append(self.encoder.encode([c for _, c in flat[i:i + IDENTIFY_CHUNK]]))
+                if on_progress:
+                    on_progress(min(1.0, (i + IDENTIFY_CHUNK) / len(flat)))
+            encoded = np.concatenate(parts)
+        rows: dict[str, list[int]] = {}
+        for i, (tid, _) in enumerate(flat):
+            rows.setdefault(tid, []).append(i)
+        for tid in tids:
             if cancelled():
                 raise Cancelled
             tc = crops.get(tid)
@@ -231,7 +266,7 @@ class Analyser:
             if self.encoder is None:
                 species[tid] = SpeciesResult([], 1.0, "Unknown", "The species model isn't installed.")
                 continue
-            vec = self.encoder.encode([c for _, c in tc.crops]) if tc else np.zeros((0, 1), np.float32)
+            vec = encoded[rows[tid]] if tid in rows else np.zeros((0, 1), np.float32)
             if vec.size:
                 vectors[tid] = vec
             species[tid] = match(vec, index, self.cfg.species)
@@ -278,48 +313,60 @@ class Analyser:
         def tick():
             nonlocal done
             done += 1
-            on_progress(min(0.9, 0.9 * done / max(1, total)))
+            on_progress(min(SEARCH_SHARE, SEARCH_SHARE * done / max(1, total)))
 
         pictures: list[Picture] = []
         crops: dict[str, _TrackCrops] = {}
         points: list[PointPlan] = []
         drifting: set[str] = set()
-        for p in plans:
-            start, end = context_range(p.timestamp_s, ctx, info.duration_s)
-            # Start the sampling grid so the point's own moment is one of the pictures read.
-            grid_start = p.timestamp_s - int((p.timestamp_s - start) * fps) / fps
-            frames = iter_sampled_frames(path, file_key, grid_start, end, fps, preroll_s=app.frames.seek_preroll_s)
-            tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps, self.tracker)
-            drift = DriftFilter(self.cfg.drift)
-            first = len(pictures)
-            greys: list[np.ndarray] = []  # small grey copies for motion detection (stationary camera)
+        seen: dict[int, tuple[QualityResult, list[Detection]]] = {}  # each picture is searched once
+        # Context clips are written on the CPU while the GPU searches the next point's pictures.
+        clip_writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clips")
+        clip_jobs: list[tuple[int, Future]] = []
+        try:
+            for p in plans:
+                start, end = context_range(p.timestamp_s, ctx, info.duration_s)
+                # One sampling grid for the whole video (from the window start): points whose context overlaps
+                # read the same pictures, so each is searched once (seen). Points 60 s apart sit on the grid.
+                grid_start = window.start_s + math.ceil(round((start - window.start_s) * fps, 6)) / fps
+                frames = iter_sampled_frames(path, file_key, grid_start, end, fps, preroll_s=app.frames.seek_preroll_s)
+                tracker = VideoTracker(f"{file_key}-p{p.point_no}", self.cfg.track, fps, self.tracker)
+                drift = DriftFilter(self.cfg.drift)
+                first = len(pictures)
+                greys: list[np.ndarray] = []  # small grey copies for motion detection (stationary camera)
 
-            def source(frames=frames, greys=greys):
-                for f in frames:
-                    if self.cfg.motion.enabled:
-                        greys.append(small_grey(f.image, self.cfg.motion.work_width))
-                    yield f.frame_idx, f.t_s, hhmmss(f.t_s), f.image
+                def source(frames=frames, greys=greys):
+                    for f in frames:
+                        if self.cfg.motion.enabled:
+                            greys.append(small_grey(f.image, self.cfg.motion.work_width))
+                        yield f.frame_idx, f.t_s, hhmmss(f.t_s), f.image
 
-            self._run_pictures(source(), tracker, file_key, enhance, crops, pictures, save_picture,
-                               lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
-                               cancelled, tick, drift)
-            drifting.update(drift.drifting())
-            self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
-            clip: Path | None = p.clip_path
-            try:
-                save_clip(path, start, end, p.clip_path, app.clips, preroll_s=app.frames.seek_preroll_s)
-            except Exception as e:  # a missing clip never stops the count; staff can still see the pictures
-                log.warning("Context clip for point %s of %s not saved: %s", p.point_no, path.name, e)
-                clip = None
-            points.append(PointPlan(p.point_no, p.timestamp_s, clip))
+                self._run_pictures(source(), tracker, file_key, enhance, crops, pictures, save_picture,
+                                   lambda n, k=p.point_no: f"p{k:02d}_{n:04d}", "point", p.point_no, True,
+                                   cancelled, tick, drift, seen)
+                drifting.update(drift.drifting())
+                self._add_moving_fish(pictures[first:], greys, f"{file_key}-p{p.point_no}", crops)
+                clip_jobs.append((len(points), clip_writer.submit(
+                    save_clip, path, start, end, p.clip_path, app.clips, preroll_s=app.frames.seek_preroll_s)))
+                points.append(PointPlan(p.point_no, p.timestamp_s, p.clip_path))
 
-        # Species richness: sparse scan of the whole window (only pictures with something in them are kept).
-        scan_tracker = VideoTracker(f"{file_key}-scan", self.cfg.track, scan_fps, self.tracker)
-        frames = iter_sampled_frames(path, file_key, window.start_s, window.end_s, scan_fps,
-                                     preroll_s=app.frames.seek_preroll_s)
-        self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
-                           file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
-                           None, False, cancelled, tick)
-        species, vectors, best = self._identify(pictures, crops, index, cancelled)
-        on_progress(1.0)
-        return FileResult(pictures, species, vectors, best, window, points, drifting)
+            # Species richness: sparse scan of the whole window (only pictures with something in them are kept).
+            scan_tracker = VideoTracker(f"{file_key}-scan", self.cfg.track, scan_fps, self.tracker)
+            frames = iter_sampled_frames(path, file_key, window.start_s, window.end_s, scan_fps,
+                                         preroll_s=app.frames.seek_preroll_s)
+            self._run_pictures(((f.frame_idx, f.t_s, hhmmss(f.t_s), f.image) for f in frames), scan_tracker,
+                               file_key, enhance, crops, pictures, save_picture, lambda n: f"scan_{n:05d}", "scan",
+                               None, False, cancelled, tick, seen=seen)
+            species, vectors, best = self._identify(pictures, crops, index, cancelled,
+                                                    lambda f: on_progress(SEARCH_SHARE + (0.98 - SEARCH_SHARE) * f))
+            clip_writer.shutdown(wait=True)
+            for i, job in clip_jobs:
+                try:
+                    job.result()
+                except Exception as e:  # a missing clip never stops the count; staff can still see the pictures
+                    log.warning("Context clip for point %s of %s not saved: %s", points[i].point_no, path.name, e)
+                    points[i] = PointPlan(points[i].point_no, points[i].timestamp_s, None)
+            on_progress(1.0)
+            return FileResult(pictures, species, vectors, best, window, points, drifting)
+        finally:  # also when stopped: a clip being written finishes before its folder is removed
+            clip_writer.shutdown(wait=True)

@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { Person, VideoResult } from "../../../shared/api";
 import { api } from "../api";
 import { Chip, btnPrimary } from "../ui";
+import { CountProgress } from "./CountProgress";
 import { CountControls } from "./CountControls";
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
@@ -59,6 +60,11 @@ export function WindowConfirm({
         )}
         {v.confirmedBy && <CountControls video={v} person={person} onChanged={onChanged} />}
       </div>
+      {(v.countState === "queued" || v.countState === "running") && (
+        <div className="mt-3 rounded-lg border border-primary/30 bg-card px-4 py-3">
+          <CountProgress state={v.countState} percent={v.countPercent} detail={v.countDetail} etaS={v.countEtaS} />
+        </div>
+      )}
       <p className="mt-2 text-muted-foreground">
         Proposed{" "}
         {v.proposedStartS !== null && v.proposedEndS !== null

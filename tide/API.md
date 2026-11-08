@@ -318,6 +318,8 @@ VideoResult    {
                     countState: "" | "queued" | "running" | "done" | "failed" | "stopped",  // "" = waiting for confirmation;
                                                 // "stopped" = stopped by a person, or TIDE closed while counting
                     countDetail: string,
+                    countPercent: number | null, // 0–100 while queued or running
+                    countEtaS: number | null,   // estimated seconds left while running (null: not known yet)
                     points: PointResult[],
                     meanCount: number | null,   // final (staff values where set); zero points included
                     meanCountAi: number | null, // the AI's alone

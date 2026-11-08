@@ -180,7 +180,9 @@ export type VideoResult = {
   confirmedBy: string;
   // "" = waiting for a confirmed window; "stopped" = a person stopped it, or TIDE closed while counting
   countState: "" | "queued" | "running" | "done" | "failed" | "stopped";
-  countDetail: string;
+  countDetail: string; // what counting is doing now ("Identifying the species"), or why it stopped or failed
+  countPercent: number | null; // 0–100 while running
+  countEtaS: number | null; // estimated seconds left while running (null: not known yet)
   points: PointResult[];
   meanCount: number | null;
   meanCountAi: number | null;
@@ -298,7 +300,15 @@ export type Evaluation = {
     shareWithin: number;
     zeroAgreement: number;
   }[];
-  points: { video: string; pointNo: number; ai: number; human: number; absDiff: number; pctDiff: number; within: boolean }[];
+  points: {
+    video: string;
+    pointNo: number;
+    ai: number;
+    human: number;
+    absDiff: number;
+    pctDiff: number;
+    within: boolean;
+  }[];
   unmatchedHuman: string[];
   source: string;
 };
@@ -322,7 +332,6 @@ export type Video = {
   confirmedAt: string;
   shortWindow?: boolean; // shorter than the protocol window (protocol.yaml window.allow_short_videos)
 };
-
 
 export type PickedFile = { path: string; name: string; size: number };
 export type SkippedFile = { name: string; reason: string };

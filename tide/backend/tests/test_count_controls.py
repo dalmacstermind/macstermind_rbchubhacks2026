@@ -175,3 +175,8 @@ def test_counts_interrupted_by_closing_tide_are_marked_stopped(tmp_path, monkeyp
     assert client.post(f"/videos/{vid}/count", headers=ANA).status_code == 204
     assert _wait(client, sid, ("done", "failed"))["countState"] in ("done", "failed")
 
+
+
+def test_count_progress_text_names_the_stage():
+    assert count_progress_text(0.93, 140, "Identifying the species") == (
+        "Identifying the species: 93% · less than a minute left")

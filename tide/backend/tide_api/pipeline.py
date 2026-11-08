@@ -27,7 +27,7 @@ import numpy as np
 
 from tide import device
 from tide.analyse import IMAGE_EXT as AV_IMAGE_EXT
-from tide.analyse import Analyser, Cancelled, FileResult, read_image
+from tide.analyse import SEARCH_SHARE, Analyser, Cancelled, FileResult, read_image
 from tide.config import AppConfig, ConfigError, ProtocolConfig, VisionConfig, load_vision_config
 from tide.fetch_models import BIOCLIP_REVISION
 from tide.fetch_reference_images import load_fingerprints
@@ -116,9 +116,10 @@ def estimate_clarity(picture: Path) -> float | None:
 MIN_FRACTION_FOR_ESTIMATE = 0.02
 
 
-def count_progress_text(fraction: float, elapsed_s: float) -> str:
-    """What staff read while a video is counted: the percentage and, once it means something, the time left."""
-    text = f"Counting the points: {int(fraction * 100)}%"
+def count_progress_text(fraction: float, elapsed_s: float, stage: str = "Counting the points") -> str:
+    """What staff read while a video is counted: what it's doing, the percentage and, once it means
+    something, the time left. e.g. "Identifying the species: 93% · less than a minute left"."""
+    text = f"{stage}: {int(fraction * 100)}%"
     if fraction < MIN_FRACTION_FOR_ESTIMATE or elapsed_s <= 0:
         return text
     left_s = elapsed_s * (1 - fraction) / fraction
@@ -700,7 +701,7 @@ class Jobs:
                                 v["confirmed_by"], datetime.now())
         for old in self.db.clear_video_counts(video_id):  # a re-confirmed window replaces the old count
             Path(old).unlink(missing_ok=True)
-        self.db.set_count_state(video_id, "running", "Loading the models")
+        self.db.set_count_state(video_id, "running", "Loading the models", 0)
         analyser = VISION.analyser(look_closer=req.look_closer, tracker=req.tracker)
         out_dir = self.surveys_dir() / str(v["survey_id"])
         key = window.video_id
@@ -708,8 +709,15 @@ class Jobs:
         started = time.monotonic()  # after the models loaded, so loading them doesn't skew the time left
 
         def progress(fr: float):
-            if not run.stop.is_set():  # a stopped count must not write "Counting…" over "stopped"
-                self.db.set_count_state(video_id, "running", count_progress_text(fr, time.monotonic() - started))
+            if run.stop.is_set():  # a stopped count must not write "Counting…" over "stopped"
+                return
+            stage = ("Searching the pictures for fish" if fr < SEARCH_SHARE else
+                     "Identifying the species" if fr < 0.99 else "Saving the results")
+            spent = time.monotonic() - started
+            # Time left from the pace so far (the stages are weighted by measured time, so it holds up).
+            eta = spent * (1 - fr) / fr if fr >= MIN_FRACTION_FOR_ESTIMATE and spent > 0 else None
+            self.db.set_count_state(video_id, "running", count_progress_text(fr, spent, stage), round(fr * 100, 1),
+                                    None if eta is None else max(0.0, eta))
 
         clip_dir = out_dir / "clips" / key
         saved: list[Path] = []
@@ -737,6 +745,7 @@ class Jobs:
             raise
         for pt in res.points:
             self.db.add_point(video_id, pt.point_no, pt.timestamp_s, str(pt.clip_path or ""))
+        progress(0.99)
         registry = {s.id for s in self.db.list_species()}
         pics, found, fish = self._store_result(v["survey_id"], Path(v["path"]), res, req, registry, out_dir,
                                                video_id)
