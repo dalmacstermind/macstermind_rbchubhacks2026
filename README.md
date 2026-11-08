@@ -215,6 +215,9 @@ thing to sort out early.
   installed, so stray packages make the app bigger.
 - The runtime is **PyTorch (CUDA build)**, per CLAUDE.md; it also runs on CPU. The packaged back end
   is several GB with the models, so check the NSIS size limit early (CLAUDE.md, Packaging).
+- Include FFmpeg in the back end for context clips that play in the app: PyInstaller needs
+  `collect_data_files("imageio_ffmpeg", subdir="binaries")` in `datas` (or `--collect-data imageio_ffmpeg`).
+  Its licence is GPL-3.0 (docs/LICENCES.md).
 - Ship the models next to the back end: `models.dir` in `config/app.yaml` is relative to the config
   folder, so put `models/` beside `config/` (or add it to `datas` in `tide-api.spec`).
 - The detector is the **Community Fish Detector (RF-DETR)** until a fine-tuned YOLOX exists. Its licence
