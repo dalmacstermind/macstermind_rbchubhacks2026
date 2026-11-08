@@ -1,59 +1,33 @@
 // Protocol settings (wireframe 10): analysis window, subsample points and blind QC values used for
 // new processing. The back end checks every rule and saves the change with the person's name.
-import { useEffect, useState } from "react";
-import type { Person, ProtocolCheck, ProtocolSettings, ProtocolSettingsState } from "../../../shared/api";
-import { api } from "../api";
-import { PROTOCOL_FIELDS, changedFields, shown, stored, type ProtocolField } from "../protocolSettings";
+import { useState } from "react";
+import type { Person, ProtocolCheck, ProtocolSettings } from "../../../shared/api";
+import { PROTOCOL_FIELDS, shown, stored, type ProtocolField } from "../protocolSettings";
 import { Alert, btnGhost, btnPrimary, useConfirm } from "../ui";
+import type { ProtocolForm } from "../useProtocolForm";
 import { ProtocolChangeSummary } from "./ProtocolChangeSummary";
 
 const GROUPS = ["Analysis window", "Subsample points", "Blind quality check"] as const;
 
-export function ProtocolSettingsPanel({ person }: { person: Person }) {
-  const [state, setState] = useState<ProtocolSettingsState | null>(null);
-  const [draft, setDraft] = useState<ProtocolSettings | null>(null);
-  const [check, setCheck] = useState<ProtocolCheck | null>(null);
+export function ProtocolSettingsPanel({ person, form }: { person: Person; form: ProtocolForm }) {
+  const { state, draft, setDraft, check, error, changes, hasErrors } = form;
   const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState("");
   const [confirmNode, confirm] = useConfirm();
-
-  const show = (s: ProtocolSettingsState) => {
-    setState(s);
-    setDraft(s.values);
-    setError("");
-  };
-  useEffect(() => {
-    void api.settings.protocol.get().then(show);
-  }, []);
-
-  // While someone types, ask the back end (after a short pause) how many points a window gets and
-  // whether any value breaks a protocol rule. Nothing is saved by this.
-  useEffect(() => {
-    if (!draft) return;
-    const timer = setTimeout(() => void api.settings.protocol.check(draft).then(setCheck), 300);
-    return () => clearTimeout(timer);
-  }, [draft]);
 
   if (!state || !draft) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
-  const changes = changedFields(state.values, draft);
   const errors = check?.errors ?? {};
-  const hasErrors = Object.keys(errors).length > 0;
   const set = (f: ProtocolField, typed: number) => setDraft({ ...draft, [f.key]: stored(f, typed) });
 
-  const save = async () => {
+  const save = () => {
     setConfirming(false);
-    try {
-      show(await api.settings.protocol.save(draft, person.name));
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    void form.save();
   };
   const reset = () =>
     confirm(
       "Go back to the default protocol settings for new surveys? Surveys already processed keep their values.",
       "Use the defaults",
-      () => void api.settings.protocol.reset(person.name).then(show, (e: Error) => setError(e.message)),
+      form.reset,
     );
 
   return (
@@ -63,7 +37,7 @@ export function ProtocolSettingsPanel({ person }: { person: Person }) {
         <ProtocolChangeSummary
           changes={changes}
           person={person.name}
-          onConfirm={() => void save()}
+          onConfirm={save}
           onClose={() => setConfirming(false)}
         />
       )}
@@ -100,7 +74,7 @@ export function ProtocolSettingsPanel({ person }: { person: Person }) {
           Save…
         </button>
         {changes.length > 0 && (
-          <button className={btnGhost} onClick={() => setDraft(state.values)}>
+          <button className={btnGhost} onClick={form.undo}>
             Undo my edits
           </button>
         )}
