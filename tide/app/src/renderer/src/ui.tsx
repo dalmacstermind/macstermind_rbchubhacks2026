@@ -275,4 +275,12 @@ export function formatBytes(n: number) {
   return `${n.toFixed(i >= 3 ? 1 : 0)} ${u[i]}`;
 }
 
+/** Today on this computer as YYYY-MM-DD: the latest date anything can have been filmed. */
+export function today() {
+  const now = new Date();
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
+}
+export const FUTURE_DATE_MESSAGE = "Filmed date can't be in the future";
+
 export const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
