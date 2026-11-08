@@ -50,6 +50,10 @@ species:
   top_k: 3                  # suggestions shown to staff
   crop_padding: 0.12        # extra space around each box when cutting the crop
   min_crop_px: 24           # crops smaller than this are too small to identify
+  # Default reference pictures (CC0 / CC-BY photos from iNaturalist) and their fingerprints, inside
+  # models.dir, in the repo through Git LFS. The list of photos, credits and checksums is
+  # config/reference_seed.json. TIDE adds them to the Species Registry on first start.
+  seed_dir: reference-seed
 
 track:
   enabled: true             # ByteTrack across the sampled pictures of each video

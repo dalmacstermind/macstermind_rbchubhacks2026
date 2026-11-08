@@ -59,6 +59,17 @@ class ReferenceIndex:
         return not self.by_species
 
 
+REFERENCE_MAX_WIDTH = 1024
+
+
+def prepare_reference(img: np.ndarray) -> np.ndarray:
+    """A reference picture as it is stored and fingerprinted: at most 1024 px wide."""
+    h, w = img.shape[:2]
+    if w > REFERENCE_MAX_WIDTH:
+        img = cv2.resize(img, (REFERENCE_MAX_WIDTH, round(h * REFERENCE_MAX_WIDTH / w)), interpolation=cv2.INTER_AREA)
+    return img
+
+
 def crop_box(image_bgr: np.ndarray, box: tuple[float, float, float, float], padding: float,
              min_px: float) -> np.ndarray | None:
     """Cut a padded crop around a box; None when it is too small to identify."""

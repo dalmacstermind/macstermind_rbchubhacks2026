@@ -37,6 +37,15 @@ without team and client approval.
 | jsdom (dev-only) | MIT | Simulated browser page for Vitest tests (never shipped in the app) |
 | @fontsource/sora, @fontsource/manrope | SIL OFL 1.1 | Bundled fonts (Sora, Manrope) |
 
+## Default reference pictures (Species Registry)
+
+225 photos (25 per species) from iNaturalist research-grade observations, licence **CC0 or CC-BY
+only** (195 CC-BY, 30 CC0 when added). They are in this repo through Git LFS
+(`tide/backend/models/reference-seed/`), with their species-model fingerprints. **Credits:** `tide/backend/config/reference_seed.json` lists
+every photo with its observation link, the photographer's attribution and its licence; the app also
+shows the credit as each picture's source. CC-BY requires that credit to stay with the photo
+wherever it is shown or shipped (for example, include the list with the installer).
+
 ## Models and data
 
 | Component | Version | Licence | Notes |

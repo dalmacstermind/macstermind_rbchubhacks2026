@@ -3,10 +3,13 @@
 Interactive docs while it's running: http://127.0.0.1:8765/docs
 The contract is described in ../API.md — keep the two in step.
 """
+import logging
 import os
 import re
 import secrets
 import shutil
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -50,7 +53,21 @@ def check_token(x_tide_token: str = Header(""), token: str = Query("")):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or wrong token")
 
 
-app = FastAPI(title="TIDE API", version=__version__, dependencies=[Depends(check_token)])
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """After start-up, add the default reference pictures in the background, so /health answers at once
+    (working out their fingerprints takes minutes on a CPU). Does nothing once they're all added."""
+    def seed():
+        try:
+            pipeline.seed_default_references(db, DATA_DIR)
+        except Exception:  # never stop the app over the default pictures
+            logging.getLogger(__name__).exception("Adding the default reference pictures failed")
+
+    threading.Thread(target=seed, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="TIDE API", version=__version__, dependencies=[Depends(check_token)], lifespan=lifespan)
 # The UI is served from the Vite dev server (development) or a local file (installed app).
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 

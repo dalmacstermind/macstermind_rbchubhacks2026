@@ -101,6 +101,12 @@ CREATE TABLE IF NOT EXISTS reference_removals (
   source TEXT NOT NULL DEFAULT '', removed_by TEXT NOT NULL,
   removed_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+-- Default reference pictures already added (tide_api.pipeline.seed_default_references), so each is
+-- added once: a picture staff removed is not added back.
+CREATE TABLE IF NOT EXISTS seeded_references (
+  seed_key TEXT PRIMARY KEY, species_id TEXT NOT NULL,
+  added_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 """
 
 # Columns added after the first version. Existing databases get them on start-up.
@@ -479,6 +485,13 @@ class Database(ProtocolStore):
         r = self.one("SELECT f.survey_id, f.source, f.timestamp FROM detections d JOIN frames f ON f.id = d.frame_id "
                      "WHERE f.survey_id = ? AND d.track_id = ? ORDER BY d.confidence DESC LIMIT 1", survey_id, track_id)
         return _origin(r) if r else None
+
+    def seeded(self, seed_key: str) -> bool:
+        """True if this default reference picture was added before (even if staff removed it since)."""
+        return self.one("SELECT 1 FROM seeded_references WHERE seed_key = ?", seed_key) is not None
+
+    def mark_seeded(self, seed_key: str, species_id: str) -> None:
+        self.run("INSERT OR IGNORE INTO seeded_references (seed_key, species_id) VALUES (?, ?)", seed_key, species_id)
 
     def remove_species_reference(self, species_id: str, ref_id: int, by: str) -> Path | None:
         """Remove one of this species' reference pictures and record who did it. None if the picture
