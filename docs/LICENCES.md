@@ -34,6 +34,7 @@ without team and client approval.
 | React | MIT | Screens |
 | Recharts | MIT | Trends charts |
 | ExcelJS | MIT | Writing the `.xlsx` export |
+| jsdom (dev-only) | MIT | Simulated browser page for Vitest tests (never shipped in the app) |
 | @fontsource/sora, @fontsource/manrope | SIL OFL 1.1 | Bundled fonts (Sora, Manrope) |
 
 ## Models and data

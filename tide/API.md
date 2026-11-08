@@ -34,7 +34,7 @@ While the back end is running, the same API is browsable and testable at **http:
 | POST | `/people` | `{name, role?}` | `Person[]`. Same name in any case updates the role |
 | DELETE | `/people/{name}` | | `Person[]` |
 
-### Species list
+### Species Registry
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
@@ -54,7 +54,8 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 | GET | `/species/{id}/references` | | `Reference[]` |
 | POST | `/species/{id}/references` | `{paths: string[], by?}` | `Reference[]`. `400` if a file is missing or not a picture; `503` if the species model isn't installed |
 | POST | `/species/{id}/references/from-detection` | `{detectionId, by?}` | `Reference[]`. Uses a checked fish's crop |
-| DELETE | `/references/{refId}` | | `204` |
+| DELETE | `/species/{id}/references/{refId}` | header `X-TIDE-User: <URL-encoded name>` | `Reference[]` left for that species. `400` if the person is missing or not on the people list; `404` if the picture isn't this species'. Recorded with who and when |
+| DELETE | `/references/{refId}` | | `204`. Older route without a person or species check; kept working, not used by the app |
 | GET | `/references/{refId}/image` | | the JPG (token in the query, like frame pictures) |
 
 ### Analysis (runs in the background)
@@ -166,14 +167,19 @@ Species        {
                     custom: boolean,
                     addedBy: string,
                     addedAt: string,
-                    referenceCount: number      // reference pictures the species model uses (0 = can't be suggested)
+                    referenceCount: number,     // reference pictures the species model uses (0 = can't be suggested)
+                    thumbnail: string | null    // path of the first reference picture (Species Registry card)
                 }
 
 Reference      {
                     id: string, speciesId: string,
                     image: string,              // path like "/references/3/image"
-                    source: string,             // original file name, or "Checked fish 12"
-                    addedBy: string, addedAt: string
+                    source: string,             // short note: the file name, or e.g. "GX010021.MP4 at 00:06:00"
+                    addedBy: string, addedAt: string,
+                    // where it came from; empty for uploaded pictures and pictures added before this was recorded:
+                    surveyId: number | null, surveySite: string,
+                    sourceFile: string,         // the video or picture the fish was seen in
+                    sourceTime: string          // time in the video, e.g. "00:06:00"
                 }
 
 AnalysisRequest{
@@ -260,7 +266,7 @@ ModelStatus    {
                     device: "gpu" | "cpu",      // shown as "GPU mode" / "CPU mode"
                     gpu: string,                // graphics card name in GPU mode
                     speciesModel: string,       // "BioCLIP 2", or "" when it isn't installed
-                    references: number          // reference pictures in the species list
+                    references: number          // reference pictures in the Species Registry
                 }
 
 Person         { name: string, role: string }

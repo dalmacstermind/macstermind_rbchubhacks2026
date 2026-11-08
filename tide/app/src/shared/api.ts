@@ -97,7 +97,7 @@ export type ModelStatus = {
   device?: "gpu" | "cpu"; // shown as "GPU mode" / "CPU mode"
   gpu?: string; // graphics card name in GPU mode
   speciesModel?: string; // e.g. "BioCLIP 2", or "" when it isn't installed
-  references?: number; // reference pictures in the species list
+  references?: number; // reference pictures in the Species Registry
 };
 
 /** A reference picture of a species. The species model compares fish with these. */
@@ -105,9 +105,14 @@ export type Reference = {
   id: string;
   speciesId: string;
   image: string; // full URL (the token is added by api.ts)
-  source: string; // original file name, or "Checked fish 12"
+  source: string; // short description: the file name, or e.g. "GX010021.MP4 at 00:06:00"
   addedBy: string;
   addedAt: string;
+  // Where it came from (empty for pictures uploaded from this computer, and for older pictures):
+  surveyId: number | null;
+  surveySite: string; // the survey's site name, if the survey still exists
+  sourceFile: string; // the video or picture the fish was seen in
+  sourceTime: string; // time in the video, e.g. "00:06:00"
 };
 
 export type Reidentified = { tracks: number; changed: number };
@@ -335,7 +340,8 @@ export type TideApi = {
       add: (speciesId: string, paths: string[], by: string) => Promise<Reference[]>;
       /** Use a checked fish's crop as a reference picture. */
       fromDetection: (speciesId: string, detectionId: string, by: string) => Promise<Reference[]>;
-      remove: (referenceId: string) => Promise<void>;
+      /** Remove one picture of this species; saved with the person's name. Returns the pictures left. */
+      remove: (speciesId: string, referenceId: string, person: string) => Promise<Reference[]>;
     };
   };
   analysis: {

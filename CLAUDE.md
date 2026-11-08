@@ -125,17 +125,20 @@ tide/
       api.ts                     every backend call
       ui.tsx                     shared UI pieces (Chip, Modal, Field, buttons…)
       pages.ts                   the Page type: which screen is showing (no URLs)
+      speciesRegistry.ts         Species Registry helpers: sort, search, "New" badge, image count, picture source
       components/                AppTopBar, ToolsSidebar, StepTabs (the app frame, see App frame),
                                  VideoPlayer, PointTimeline, PointPanel, UnknownGallery,
                                  LabelCanvas, LabelPicker, NewSpeciesForm, TrendsChart…
-                                 (today: SuggestionButtons, ReferencePictures, UseAsReference, MatchAgainButton,
+                                 SpeciesGrid, SpeciesCard, SpeciesImagesDialog, ReferenceImageView,
+                                 SpeciesDetails (the Species Registry, see Species Registry),
+                                 (today: SuggestionButtons, UseAsReference, MatchAgainButton,
                                  ProtocolResults, VideoResultCard, PointTable, PointEditor, ImageResultsTable,
                                  EvaluationPanel, UnknownGallery, LabelPicker, LabelCanvas,
                                  Splash + OceanScene: start-up animation shown until the back end is ready;
                                  ReefScene, SeaFloor, Critters, SurveyCamera: its "reef" look, used at start-up;
                                  the plainer "classic" look is still available via Splash's `variant`)
       views/                     Upload, Processing, Results, ImageResults, Label, QC,
-                                 Trends, Species, Settings, People
+                                 Trends, Species (the Species Registry), Settings, People
                                  (today: Report shows the protocol results; Label is the Label page)
     test/                        Vitest
   backend/
@@ -193,13 +196,13 @@ working, light/dark theme, shortcuts sheet, export check) and add the missing wi
 Every screen after "Who's working?" has the same frame (`App.tsx`):
 
 ```
-┌ Top bar: TIDE logo ······················· mode · ? Shortcuts · Light/Dark · person · Offline ┐
-├ Tools column ┬ Step tabs: 1 New survey | 2 Counting | 3 Report | 4 Check the fish | 5 Label … ┤
-│ TOOLS        │                                                                               │
-│ Blind QC     │                         the current page                                      │
-│ Trends       │                                                                               │
-│ Species list │                                                                               │
-│ Settings     │                                                                               │
+┌ Top bar: TIDE logo ··························· mode · ? Shortcuts · Light/Dark · person · Offline ┐
+├ Tools column ────┬ Step tabs: 1 New survey | 2 Counting | 3 Report | 4 Check the fish | 5 Label … ┤
+│ TOOLS            │                                                                               │
+│ Blind QC         │                         the current page                                      │
+│ Trends           │                                                                               │
+│ Species Registry │                                                                               │
+│ Settings         │                                                                               │
 ```
 
 1. **Top bar** (`components/AppTopBar.tsx`), across the whole window: TIDE logo on the left; on the
@@ -207,7 +210,7 @@ Every screen after "Who's working?" has the same frame (`App.tsx`):
    "? Shortcuts", the Light/Dark switch, who's working (click to switch person) and "Offline"
    (tooltip: nothing leaves this computer).
 2. **Tools column** (`components/ToolsSidebar.tsx`), a narrow column on the left under a **Tools**
-   heading: **Blind QC, Trends, Species list, Settings**. Locked while a survey is being counted.
+   heading: **Blind QC, Trends, Species Registry, Settings**. Locked while a survey is being counted.
 3. **Step tabs** (`components/StepTabs.tsx`), one horizontal row of five tabs above the page, in
    this order: **New survey | Counting | Report | Check the fish | Label unknown fish**, numbered
    1–5. "Check the fish" carries the badge of fish still to check or name. Counting is a progress
@@ -226,6 +229,34 @@ Rules for the navigation:
   `card`, `muted-foreground`), so both work in light and dark mode. No hard-coded colours.
 - There are no URLs: `App.tsx` keeps the current screen in `page` (type `Page` in `pages.ts`), and
   the Tools column and the step tabs change it with `go(page)`.
+
+## Species Registry (Tools → Species Registry)
+
+The species TIDE can name (`views/Species.tsx`). It is always called **Species Registry** in the UI.
+
+- **Cards, not a table** (`SpeciesGrid`, `SpeciesCard`): a CSS grid with **three cards per row**
+  (`grid-cols-3`; the cards widen or narrow with the window). Each card is a low, wide rectangle,
+  8rem tall (`h-32`): the picture on the left (two-fifths of the width), the names on the right. Long
+  names are shortened with "…" so every card stays the same height.
+  Cards are sorted alphabetically by common name (ignoring case). Each card is a `<button>` (Tab
+  reaches it, Enter or Space opens it, visible focus outline) showing: the first reference picture
+  (`loading="lazy"`) or a neutral fish-outline placeholder, the **common name**, the *scientific
+  name* if known, "N images", and a **New** badge if staff added it in the last 7 days.
+- **Search** (common or scientific name, any case) filters the cards as you type. "+ Add species"
+  and "Restore original list" are unchanged.
+- **Species dialog** (`SpeciesImagesDialog`): the names; all reference pictures as a grid of
+  thumbnails ("No reference images yet …" if none); "+ Add pictures". Clicking a thumbnail shows
+  it larger (`ReferenceImageView`) with where it came from (survey, video or picture file and time,
+  or the uploaded file's name), who added it and when, and **Remove image** (asks first). A
+  **Details** section (`SpeciesDetails`) holds what used to be table columns: group, habitat,
+  status (a human note, never set by the AI), added by, and "Remove species" for species staff
+  added. The fixed "Unknown/Unable to ID due to visibility" label has no pictures.
+- The dialog closes with Close, Esc or a click outside; keyboard focus then returns to the card
+  that opened it. This is built into the shared `Modal` (`ui.tsx`), which also closes only the top
+  dialog on Esc when one is open over another.
+- Pictures are always served by the local backend (`/references/{id}/image?token=…`), never from
+  the internet. Where a picture came from is stored with it (`species_references.survey_id`,
+  `source_file`, `source_time`); pictures added before this show their old short note instead.
 
 ## Adding media
 
@@ -499,7 +530,10 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 |---|---|---|
 | Keep | `GET /health` · `GET /model` · `GET /storage` | Start-up check; model and mode (`device: "gpu" \| "cpu"`); disk use |
 | Keep | `GET /people` · `POST /people` · `DELETE /people/{name}` | Who's working |
-| Keep, extend | `GET/POST /species` · `PATCH/DELETE /species/{id}` | Registry; add reference images. Status is a human note only |
+| Keep, extend | `GET/POST /species` · `PATCH/DELETE /species/{id}` | Species Registry; each species has `referenceCount` and `thumbnail` (first reference picture). Status is a human note only |
+| Done | `GET /species/{id}/references` · `POST /species/{id}/references` | A species' reference pictures, each with who/when and where it came from (`surveyId`, `surveySite`, `sourceFile`, `sourceTime`); add pictures from this computer |
+| Done | `DELETE /species/{id}/references/{refId}` | Remove one reference picture of that species (404 if it belongs to another); needs `X-TIDE-User` (on the people list); recorded in `reference_removals` |
+| Retire | `DELETE /references/{refId}` | Older removal route without a person or species check; kept working, but the app no longer uses it |
 | Change | `POST /analyses` | Start processing a survey: details + local file paths; extracts ZIPs, runs ingest → `Job` |
 | Keep, extend | `GET /analyses/{jobId}` · `POST /analyses/{jobId}/cancel` | Status, %, per-video pipeline step, errors |
 | Keep | `GET /surveys` · `GET/PATCH/DELETE /surveys/{id}` | Surveys (= batches) |
@@ -749,6 +783,9 @@ Some team members are new to JavaScript. Optimize the app code for readability:
 - Draw detection boxes on a `<canvas>` layered over the `<video>` or `<img>`; never re-encode
   video in the app.
 - Ask before adding any new npm dependency, and check its licence.
+- Tests: plain Vitest for helpers and HTML rendered with `react-dom/server`. Tests that click, type
+  or press keys run in a simulated page: put `// @vitest-environment jsdom` at the top of the test
+  file (`jsdom` is a dev-only dependency, never shipped) and replace the backend with `vi.mock`.
 
 ## Open questions (do not guess; use config defaults until answered)
 

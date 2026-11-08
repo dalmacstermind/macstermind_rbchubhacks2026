@@ -33,7 +33,7 @@ from tide.ingest import recorded_date, transect_stat
 from tide.protocol import AnalysisWindow, WindowProposal, propose_window
 from tide.species import BioClipEncoder, ReferenceIndex, crop_box, match
 
-from .db import Database
+from .db import Database, ReferenceOrigin
 from .schemas import AnalysisRequest, Box, FileStatus, Job, ModelStatus, Reidentified
 from .settings import survey_protocol
 
@@ -220,8 +220,12 @@ def _need_species_model():
     return enc
 
 
-def add_reference_pictures(db: Database, data_dir: Path, species_id: str, paths: list[str], by: str) -> int:
-    """Add pictures from this computer as references for one species. Returns how many were added."""
+def add_reference_pictures(db: Database, data_dir: Path, species_id: str, paths: list[str], by: str,
+                           origin: ReferenceOrigin | None = None) -> int:
+    """Add pictures as references for one species. Returns how many were added.
+
+    origin: where the fish was seen (survey, video, time) when the picture is a crop from a survey;
+    None for pictures uploaded from this computer (then the file name is the source)."""
     enc = _need_species_model()
     out_dir = data_dir / "references" / species_id
     added = 0
@@ -232,7 +236,8 @@ def add_reference_pictures(db: Database, data_dir: Path, species_id: str, paths:
         if w > 1024:
             img = cv2.resize(img, (1024, round(h * 1024 / w)), interpolation=cv2.INTER_AREA)
         dest = _save_jpg(img, out_dir / f"{uuid.uuid4().hex}.jpg")
-        db.add_reference(species_id, dest, enc.encode([img])[0], VISION.encoder_name, src.name, by)
+        source = _origin_text(origin) if origin else src.name
+        db.add_reference(species_id, dest, enc.encode([img])[0], VISION.encoder_name, source, by, origin)
         added += 1
     return added
 
@@ -252,7 +257,14 @@ def add_reference_from_detection(db: Database, data_dir: Path, species_id: str, 
     if crop is None:
         raise ValueError("That fish is too small to use as a reference picture.")
     dest = _save_jpg(crop, data_dir / "references" / species_id / f"{uuid.uuid4().hex}.jpg")
-    db.add_reference(species_id, dest, enc.encode([crop])[0], VISION.encoder_name, f"Checked fish {detection_id}", by)
+    origin = db.detection_origin(detection_id)
+    source = _origin_text(origin) if origin else f"Checked fish {detection_id}"
+    db.add_reference(species_id, dest, enc.encode([crop])[0], VISION.encoder_name, source, by, origin)
+
+
+def _origin_text(o: ReferenceOrigin) -> str:
+    """"GX010021.MP4 at 00:06:00", or just the file name for a photo."""
+    return f"{o.source_file} at {o.source_time}" if o.source_time else o.source_file
 
 
 def reidentify(db: Database, survey_id: int) -> Reidentified:

@@ -5,6 +5,7 @@ import re
 import sqlite3
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -94,6 +95,12 @@ CREATE TABLE IF NOT EXISTS protocol_changes (
   old_json TEXT NOT NULL, new_json TEXT NOT NULL,
   changed_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+-- Reference pictures removed from the Species Registry: which one, who removed it, when.
+CREATE TABLE IF NOT EXISTS reference_removals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, species_id TEXT NOT NULL, ref_id INTEGER NOT NULL,
+  source TEXT NOT NULL DEFAULT '', removed_by TEXT NOT NULL,
+  removed_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 """
 
 # Columns added after the first version. Existing databases get them on start-up.
@@ -113,12 +120,30 @@ MIGRATIONS = [
     ("detections", "unknown_reason", "TEXT NOT NULL DEFAULT ''"),
     # The protocol values a survey was processed with (JSON, protocol.yaml layout). NULL for older surveys.
     ("surveys", "protocol_json", "TEXT"),
+    # Where a reference picture came from (Species Registry). Empty for uploaded pictures and older rows.
+    ("species_references", "survey_id", "INTEGER"),
+    ("species_references", "source_file", "TEXT NOT NULL DEFAULT ''"),
+    ("species_references", "source_time", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 # Columns no longer used. Older databases have them NOT NULL, which would block new inserts, so drop them.
 REMOVED_COLUMNS = [
     ("surveys", "environment"),  # "Type of water" was removed from the app
 ]
+
+
+@dataclass(frozen=True)
+class ReferenceOrigin:
+    """Where a reference picture came from: the survey, the video or picture file, and the time in a
+    video (e.g. "00:06:00"). All empty for pictures uploaded from this computer."""
+    survey_id: int | None = None
+    source_file: str = ""
+    source_time: str = ""
+
+
+def _origin(r) -> ReferenceOrigin:
+    time = r["timestamp"] if r["timestamp"] and r["timestamp"] != "Photo" else ""
+    return ReferenceOrigin(r["survey_id"], r["source"], time)
 
 
 def move_old_database(data_dir: Path) -> None:
@@ -195,12 +220,14 @@ class Database(ProtocolStore):
     # ── Species ──
 
     def list_species(self) -> list[Species]:
-        rows = self.all("SELECT s.*, (SELECT COUNT(*) FROM species_references r WHERE r.species_id = s.id) AS refs "
+        rows = self.all("SELECT s.*, (SELECT COUNT(*) FROM species_references r WHERE r.species_id = s.id) AS refs, "
+                        "(SELECT MIN(r.id) FROM species_references r WHERE r.species_id = s.id) AS first_ref "
                         "FROM species s ORDER BY kind = 'invertebrate', sort, common")
         return [
             Species(id=r["id"], common=r["common"], scientific=r["scientific"], status=r["status"],
                     habitat=r["habitat"], kind=r["kind"], custom=bool(r["custom"]), added_by=r["added_by"],
-                    added_at=r["added_at"], reference_count=r["refs"])
+                    added_at=r["added_at"], reference_count=r["refs"],
+                    thumbnail=f"/references/{r['first_ref']}/image" if r["first_ref"] else None)
             for r in rows
         ]
 
@@ -421,15 +448,45 @@ class Database(ProtocolStore):
     # ── Species reference pictures (BioCLIP 2 embeddings, used to identify species) ──
 
     def add_reference(self, species_id: str, image_path: Path, vector: np.ndarray, model: str, source: str,
-                      by: str) -> int:
-        return self.run("INSERT INTO species_references (species_id, image_path, embedding, model, source, added_by) "
-                        "VALUES (?, ?, ?, ?, ?, ?)", species_id, str(image_path),
-                        np.asarray(vector, np.float32).tobytes(), model, source, by)
+                      by: str, origin: ReferenceOrigin | None = None) -> int:
+        o = origin or ReferenceOrigin()
+        return self.run("INSERT INTO species_references (species_id, image_path, embedding, model, source, added_by, "
+                        "survey_id, source_file, source_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", species_id,
+                        str(image_path), np.asarray(vector, np.float32).tobytes(), model, source, by,
+                        o.survey_id, o.source_file, o.source_time)
 
     def list_references(self, species_id: str) -> list[Reference]:
         return [Reference(id=str(r["id"]), species_id=r["species_id"], image=f"/references/{r['id']}/image",
-                          source=r["source"], added_by=r["added_by"], added_at=r["added_at"])
-                for r in self.all("SELECT * FROM species_references WHERE species_id = ? ORDER BY id", species_id)]
+                          source=r["source"], added_by=r["added_by"], added_at=r["added_at"],
+                          survey_id=r["survey_id"], survey_site=r["site"] or "", source_file=r["source_file"],
+                          source_time=r["source_time"])
+                for r in self.all("SELECT r.*, s.site FROM species_references r LEFT JOIN surveys s "
+                                  "ON s.id = r.survey_id WHERE r.species_id = ? ORDER BY r.id", species_id)]
+
+    def detection_origin(self, detection_id: int) -> ReferenceOrigin | None:
+        """Where a detected fish was seen: its survey, the video or picture file, and the time in it."""
+        r = self.one("SELECT f.survey_id, f.source, f.timestamp FROM detections d JOIN frames f ON f.id = d.frame_id "
+                     "WHERE d.id = ?", detection_id)
+        return _origin(r) if r else None
+
+    def track_origin(self, survey_id: int, track_id: str) -> ReferenceOrigin | None:
+        """Where a tracked fish was seen most clearly (its most confident box)."""
+        r = self.one("SELECT f.survey_id, f.source, f.timestamp FROM detections d JOIN frames f ON f.id = d.frame_id "
+                     "WHERE f.survey_id = ? AND d.track_id = ? ORDER BY d.confidence DESC LIMIT 1", survey_id, track_id)
+        return _origin(r) if r else None
+
+    def remove_species_reference(self, species_id: str, ref_id: int, by: str) -> Path | None:
+        """Remove one of this species' reference pictures and record who did it. None if the picture
+        doesn't exist or belongs to another species (then nothing is removed)."""
+        r = self.one("SELECT image_path, source FROM species_references WHERE id = ? AND species_id = ?",
+                     ref_id, species_id)
+        if not r:
+            return None
+        with self.lock, self.conn:
+            self.conn.execute("DELETE FROM species_references WHERE id = ?", (ref_id,))
+            self.conn.execute("INSERT INTO reference_removals (species_id, ref_id, source, removed_by) "
+                              "VALUES (?, ?, ?, ?)", (species_id, ref_id, r["source"], by))
+        return Path(r["image_path"])
 
     def reference_image(self, ref_id: int) -> Path | None:
         r = self.one("SELECT image_path FROM species_references WHERE id = ?", ref_id)

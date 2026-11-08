@@ -38,6 +38,7 @@ class Species(SpeciesIn):
     custom: bool = False
     added_at: str = ""
     reference_count: int = 0  # reference pictures used to identify this species (BioCLIP 2)
+    thumbnail: Optional[str] = None  # URL path of the first reference picture (Species Registry card)
 
 
 class Reference(Model):
@@ -48,6 +49,11 @@ class Reference(Model):
     source: str  # original file name, or "Survey 4, picture 12" when made from a checked fish
     added_by: str = ""
     added_at: str = ""
+    # Where it came from (empty for pictures uploaded from this computer, and for older pictures):
+    survey_id: Optional[int] = None
+    survey_site: str = ""  # the survey's site name, if the survey still exists
+    source_file: str = ""  # the video or picture file the fish was seen in
+    source_time: str = ""  # time in the video, e.g. "00:06:00"
 
 
 class ReferencesIn(Model):

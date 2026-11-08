@@ -1,11 +1,11 @@
 // The narrow column on the left with the Tools (CLAUDE.md, App frame): Blind QC, Trends,
-// Species list and Settings. The survey steps are the row of tabs above the page (StepTabs).
+// Species Registry and Settings. The survey steps are the row of tabs above the page (StepTabs).
 import type { Page } from "../pages";
 
 const TOOLS: { id: Page; label: string; icon: string }[] = [
   { id: "qc", label: "Blind QC", icon: "✓" },
   { id: "trends", label: "Trends", icon: "↗" },
-  { id: "species", label: "Species list", icon: "≡" },
+  { id: "species", label: "Species Registry", icon: "≡" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
