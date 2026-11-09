@@ -115,7 +115,16 @@ npm install
 `npm install` also downloads Electron itself (about 100 MB), so it can take a minute.
 
 **Check it worked:** `ls node_modules/electron/dist` (Mac) or `dir node_modules\electron\dist`
-(Windows) lists `Electron.app` or `electron.exe`. If it's missing, see **Troubleshooting** below.
+(Windows) lists `Electron.app` or `electron.exe`.
+
+**If it's missing,** or `npm run dev` later says `Error: Electron uninstall`, Electron's download
+step was skipped. In the same folder, run:
+
+```sh
+node node_modules/electron/install.js
+```
+
+Then carry on with step 4. If that doesn't help, see **Troubleshooting** below.
 
 ### 4. Run it (every time)
 

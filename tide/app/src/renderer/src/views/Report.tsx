@@ -148,6 +148,7 @@ export function ReportView({
         <ExportMenu
           onExcel={() => (open.length ? setChecking(true) : void exportXlsx())}
           onPdf={() => void exportPdf()}
+          disabled={counting !== null}
         />
       </Header>
       <div className="space-y-6 px-10 py-8">

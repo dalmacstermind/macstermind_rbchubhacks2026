@@ -46,7 +46,7 @@ export function SpeciesDetails({
             </span>
           )}
         </dd>
-        <dt className="text-muted-foreground">Added by</dt>
+        <dt className="text-muted-foreground">Species added by</dt>
         <dd>
           {sp.custom
             ? `${sp.addedBy || "Someone"}${sp.addedAt ? ` · ${sp.addedAt.slice(0, 10)}` : ""}`
