@@ -170,6 +170,7 @@ tide/
       qc.py                      blind QC sampling and agreement stats
       evaluate.py                AI vs hand counts, protocol-style (per-point % diff, share within 6%, MeanCount)
       export.py                  rows for the Coastal Action spreadsheet (written by ExcelJS in the app)
+      report.py                  the downloadable report's totals: identified species, status notes, species rows
       benchmark.py               timing, VRAM, RAM, frames/s
     config/protocol.yaml         protocol parameters (defaults)
     config/app.yaml              app settings (accepted types, limits, ffmpeg path, thresholds)
@@ -578,6 +579,7 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 | Done (US-2.1) | `PATCH /videos/{id}` | Confirm analysis window (`windowStartS`, `windowEndS`); person from the `X-TIDE-User` header (URL-encoded, must be on the people list). Later: recording date, visibility |
 | Done | `GET /counts` | How every video's count is going (progress, time left, finished or failed), for the app-wide banner and notifications |
 | Done | `POST /videos/{id}/count` · `POST /videos/{id}/count/stop` | Count a confirmed window again; stop counting (needs `X-TIDE-User`; nothing of a stopped count is saved). Counts interrupted by closing TIDE are marked `stopped` at start-up |
+| Done | `GET /surveys/{id}/report` | Numbers for the downloadable PDF report (the app only displays them) |
 | New | `PATCH /points/{id}` | Review edit; keeps the original AI value |
 | New | `GET /media/{fileId}` | Stream a video or image (HTTP range requests so the player can seek) |
 | New | `GET /points/{id}/clip` | The saved ±context clip for a point |
@@ -594,6 +596,11 @@ commit (backend `schemas.py` + `main.py`; app `src/shared/api.ts` + `src/rendere
 `GET /surveys/{id}/results` (no calculations in the renderer). Sheets: video sheet (Coastal Action
 template columns, then clarity columns), **Images** (renamed from the old "Pictures" sheet), and
 **Read me** (open items; file marked "Draft" when any remain).
+
+**PDF report:** a portrait page built for printing (`components/Report*.tsx`, `report.css`), drawn off screen by
+`ReportPrint` and printed by Electron, using only `GET /surveys/{id}/report`. MeanCount stays per video. Status
+lines only use a status a person set or confirmed (`species.status_noted`), never the shipped list's value, and
+are plain lines with no alert styling. Adult and juvenile aren't recorded yet: the report shows "–" and a footnote.
 
 ### Module interfaces (Python)
 

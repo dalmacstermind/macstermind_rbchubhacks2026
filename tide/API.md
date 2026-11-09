@@ -75,7 +75,7 @@ pictures can't be suggested. Pictures are read from this computer (full paths, l
 | PATCH | `/surveys/{id}` | `{site?, surveyDate?, threshold?}` | `204`. Add a missing filming date, or change the certainty (0–1) at which a fish counts without a person checking it (default 0.4) |
 | DELETE | `/surveys/{id}` | | `204`. Also deletes its pictures |
 | GET | `/frames/{frameId}/image` | | the JPG/PNG picture |
-| PATCH | `/detections/{id}` | `{speciesId, verified, by}` | `204`. Saved the moment staff click; `by` is who did it |
+| PATCH | `/detections/{id}` | `{speciesId, verified, by}` | `204`. Saved the moment staff click; `by` is who did it. Applies to every picture of the same fish (`trackId`) |
 | POST | `/surveys/{id}/reidentify` | | `{tracks, changed}`. Matches the survey's fish again against the current reference pictures (no new detection). Boxes staff checked keep their species |
 
 ### Protocol results (subsample points, MeanCount, species richness)
@@ -101,6 +101,7 @@ on every request, so labels and point edits show up at once.
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/surveys/{id}/results` | | `SurveyResults` |
+| GET | `/surveys/{id}/report` | | `SurveyReport`: the downloadable report's numbers (identified species, staff-noted status totals, species rows with pictures, input files) |
 | PATCH | `/videos/{id}/details` | `{recordedAt?, transect?, stat?, visibility?}` | `204`. Recording details; the window itself is confirmed with `PATCH /videos/{id}` below |
 | POST | `/videos/{id}/count` | header `X-TIDE-User` | `204`. Count the confirmed window again (after it was stopped, failed or interrupted). `400` no person; `404`; `409` already counting; `422` window not confirmed |
 | POST | `/videos/{id}/count/stop` | header `X-TIDE-User` | `204`. Stop counting (a waiting count stops at once, a running one at its next picture); `countDetail` becomes "Counting stopped by <name>". `400` no person; `404`; `409` not counting |
@@ -387,16 +388,22 @@ Evaluation     {
 
 ## Who decides what
 
-- **The back end** finds fish and stores everything. It returns **every** detection with confidence ≥ 0.2
+- **The back end** finds fish and stores everything. It returns **every** detection with confidence ≥ 0.15
   (`detect.conf_threshold` in `config/app.yaml`), including unsure ones. `confidence` is the fish
-  detector's; the species model's result is in `aiLabel` / `suggestions`. With `species.best_match: true`
-  (the default) every fish is named after its closest species in the list; when it isn't a clear
-  match (`species.match_threshold` and `species.margin`), `unknownReason` says so ("Closest match
-  (similarity 0.58, not a clear match)") and staff can relabel it. With `best_match: false`, unclear
-  fish stay `"unknown"` for the Label page.
-- **The back end** removes boxes on things fixed in view for the whole video (the survey pole and its
-  markings, rope, rocks: `fixed_structure` in `config/app.yaml`) and joins the pieces of each fish's
-  track (`track.merge_gap_s`, `track.merge_distance`), so one fish is counted once.
+  detector's; the species model's result is in `aiLabel` / `suggestions`. The pictures a point is
+  counted from (±`count.tolerance_s`) and photos also get the close search: the full-resolution
+  picture in detector-sized tiles, in a colour-corrected view when the water is murky
+  (`detect.close_search`). It finds schools of small, distant fish that the whole-picture search misses.
+- **The species model decides what needs a person.** A clear match (`species.match_threshold` and
+  `species.margin`) names the fish, and it counts without anyone checking it, however faint its box.
+  Every other fish is `"unknown"` with `unknownReason` and `suggestions`, and a person picks its species.
+  `species.best_match: true` names every fish after its closest species instead (and staff check them all).
+- **One fish is counted once.** Boxes on things fixed in view for the whole video (the survey pole and
+  its markings, rope, rocks: `fixed_structure`) are removed. Pieces of a fish's track are joined
+  (`track.merge_gap_s`, `track.merge_distance`). A point never counts more fish than one of its
+  pictures shows together; its `notes` say when it counted from the busiest picture. A check in
+  "Check the fish" (`PATCH /detections/{id}`) applies to every picture of that fish (its track). The
+  Label page lists only fish that can change a count.
 - **The back end** calculates the protocol figures (point counts, MeanCount, species richness, image
   counts, clarity) in `GET /surveys/{id}/results`. The app only shows them and writes them to Excel.
 - **The app** still works out the picture-by-picture MaxN figures (an optional extra, not the headline),

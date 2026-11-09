@@ -9,6 +9,7 @@ const fake = vi.hoisted(() => ({ get: vi.fn(), check: vi.fn(), save: vi.fn(), re
 vi.mock("../src/renderer/src/api", () => ({
   api: {
     storage: () => Promise.resolve(null),
+    surveys: { list: () => Promise.resolve([]) },
     people: { list: () => Promise.resolve([]), remove: vi.fn() },
     settings: { protocol: fake },
   },

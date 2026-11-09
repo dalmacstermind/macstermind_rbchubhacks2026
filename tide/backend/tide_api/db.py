@@ -118,6 +118,9 @@ MIGRATIONS = [
     ("surveys", "created_by", "TEXT NOT NULL DEFAULT ''"),
     ("frames", "clarity", "REAL"),
     ("detections", "edited_by", "TEXT NOT NULL DEFAULT ''"),
+    # 1 once a person has set or confirmed the status; the shipped list's values are not human notes.
+    ("species", "status_noted", "INTEGER NOT NULL DEFAULT 0"),
+    ("surveys", "file_sizes", "TEXT NOT NULL DEFAULT '[]'"),  # bytes, same order as files
     # Real pipeline (tide): which tracked fish a box belongs to, and the AI's species result.
     ("detections", "track_id", "TEXT NOT NULL DEFAULT ''"),
     ("detections", "ai_label", "TEXT NOT NULL DEFAULT ''"),
@@ -233,7 +236,7 @@ class Database(ProtocolStore):
         return [
             Species(id=r["id"], common=r["common"], scientific=r["scientific"], status=r["status"],
                     habitat=r["habitat"], kind=r["kind"], custom=bool(r["custom"]), added_by=r["added_by"],
-                    added_at=r["added_at"], reference_count=r["refs"],
+                    added_at=r["added_at"], reference_count=r["refs"], status_noted=bool(r["status_noted"]),
                     thumbnail=f"/references/{r['first_ref']}/image" if r["first_ref"] else None)
             for r in rows
         ]
@@ -243,8 +246,8 @@ class Database(ProtocolStore):
         if any(_norm(x.common) == _norm(s.common) for x in self.list_species()):
             raise ValueError(f"“{s.common.strip()}” is already in the species list.")
         m = self.one("SELECT COALESCE(MAX(sort), 0) AS m FROM species")["m"]
-        self.run("INSERT INTO species (id, common, scientific, status, habitat, kind, custom, sort, added_by, added_at) "
-                 "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, datetime('now','localtime'))",
+        self.run("INSERT INTO species (id, common, scientific, status, habitat, kind, custom, sort, added_by, added_at, "
+                 "status_noted) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, datetime('now','localtime'), 1)",
                  f"custom-{int(time.time() * 1000)}", s.common.strip(), s.scientific.strip() or "—", s.status,
                  s.habitat, s.kind, m + 1, s.added_by)
 
@@ -253,8 +256,9 @@ class Database(ProtocolStore):
         if not cur:
             return False
         nxt = cur.model_copy(update=patch.model_dump(exclude_none=True))
-        self.run("UPDATE species SET common=?, scientific=?, status=?, habitat=?, kind=? WHERE id=?",
-                 nxt.common, nxt.scientific, nxt.status, nxt.habitat, nxt.kind, species_id)
+        self.run("UPDATE species SET common=?, scientific=?, status=?, habitat=?, kind=?, status_noted=? WHERE id=?",
+                 nxt.common, nxt.scientific, nxt.status, nxt.habitat, nxt.kind,
+                 int(cur.status_noted or patch.status is not None), species_id)
         return True
 
     def remove_species(self, species_id: str) -> list[Path]:
@@ -306,10 +310,19 @@ class Database(ProtocolStore):
                                   "WHERE COALESCE(v.count_state, '') <> '' ORDER BY v.id")]
 
     def create_survey(self, site: str, threshold: float, files: list[str],
-                      survey_date: str = "", created_by: str = "") -> int:
-        return self.run("INSERT INTO surveys (site, threshold, files, status, survey_date, created_by) "
-                        "VALUES (?, ?, ?, 'running', ?, ?)",
-                        site, threshold, json.dumps(files), survey_date, created_by)
+                      survey_date: str = "", created_by: str = "", file_sizes: list[int] | None = None) -> int:
+        return self.run("INSERT INTO surveys (site, threshold, files, status, survey_date, created_by, file_sizes) "
+                        "VALUES (?, ?, ?, 'running', ?, ?, ?)",
+                        site, threshold, json.dumps(files), survey_date, created_by, json.dumps(file_sizes or []))
+
+    def survey_file_sizes(self, survey_id: int) -> list[int]:
+        """Bytes per input file, recorded when the survey started ([] for older surveys)."""
+        r = self.one("SELECT file_sizes FROM surveys WHERE id = ?", survey_id)
+        return json.loads(r["file_sizes"]) if r else []
+
+    def survey_has_sample_data(self, survey_id: int) -> bool:
+        """True if any picture came from Demo mode, so the report can never pass it off as live results."""
+        return self.one("SELECT 1 FROM frames WHERE survey_id = ? AND role = 'sample' LIMIT 1", survey_id) is not None
 
     def update_survey(self, survey_id: int, site: str | None, survey_date: str | None,
                       threshold: float | None = None) -> bool:
@@ -437,10 +450,24 @@ class Database(ProtocolStore):
         r = self.one("SELECT image_path FROM frames WHERE id = ?", frame_id)
         return Path(r["image_path"]) if r else None
 
-    def update_detection(self, detection_id: int, species_id: str, verified: bool, by: str) -> bool:
+    def update_detection(self, detection_id: int, species_id: str, verified: bool, by: str) -> list[int]:
+        """Check or correct one box, and with it every picture of the same fish (its track).
+
+        One fish is checked once, not once per picture. Returns the ids of the boxes changed ([] = not found).
+        """
+        row = self.one("SELECT d.track_id, f.survey_id FROM detections d JOIN frames f ON f.id = d.frame_id "
+                       "WHERE d.id = ?", detection_id)
+        if not row:
+            return []
+        ids = [detection_id]
+        if row["track_id"]:
+            ids = [r["id"] for r in self.all("SELECT d.id FROM detections d JOIN frames f ON f.id = d.frame_id "
+                                             "WHERE f.survey_id = ? AND d.track_id = ?", row["survey_id"],
+                                             row["track_id"])]
         with self.lock, self.conn:
-            return self.conn.execute("UPDATE detections SET species_id = ?, verified = ?, edited_by = ? WHERE id = ?",
-                                     (species_id, int(verified), by if verified else "", detection_id)).rowcount > 0
+            self.conn.executemany("UPDATE detections SET species_id = ?, verified = ?, edited_by = ? WHERE id = ?",
+                                  [(species_id, int(verified), by if verified else "", i) for i in ids])
+        return ids
 
     # ── Blind QC ──
 

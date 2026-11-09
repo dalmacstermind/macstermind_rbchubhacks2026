@@ -6,7 +6,6 @@ import type { Person, SurveyResults } from "../../../shared/api";
 import type { Species } from "../../../shared/survey";
 import { api } from "../api";
 import { Alert, btnPrimary, plural } from "../ui";
-import { EvaluationPanel } from "./EvaluationPanel";
 import { ImageResultsTable } from "./ImageResultsTable";
 import { stageOf } from "./CountProgress";
 import { VideoResultCard } from "./VideoResultCard";
@@ -94,7 +93,6 @@ export function ProtocolResults({
             {results.unknownsRemaining > 0 && ` ${results.unknownsRemaining} unknown fish still to label.`}
           </p>
         </div>
-        {results.videos.length > 0 && <EvaluationPanel surveyId={surveyId} />}
       </div>
       {waiting && (
         <Alert
