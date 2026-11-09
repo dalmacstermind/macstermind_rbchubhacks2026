@@ -245,7 +245,7 @@ function registerIpc() {
         margins: { top: 0.45, bottom: 0.7, left: 0.5, right: 0.5 },
         displayHeaderFooter: true,
         headerTemplate: "<span></span>",
-        footerTemplate: REPORT_FOOTER,
+        footerTemplate: reportFooter(new Date()),
       });
       writeFileSync(r.filePath, pdf);
     } finally {
@@ -257,10 +257,15 @@ function registerIpc() {
 
 const WINDOW_BACKGROUND = "#0b1620"; // shown behind the page while the app starts
 
-// Printed at the bottom of every page of the PDF report. Chromium fills in the page numbers.
-const REPORT_FOOTER = `<div style="width:100%;margin:0 0.5in;display:flex;justify-content:space-between;
-font:8px Helvetica,Arial,sans-serif;color:#5b7480"><span>* Adult and juvenile counts are not recorded in this prototype of TIDE.</span>
-<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`;
+// Printed at the bottom of every page of the PDF report: where it was made, then the note and page
+// number. Chromium fills in the page numbers.
+function reportFooter(createdOn: Date): string {
+  const date = createdOn.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return `<div style="width:100%;margin:0 0.5in;font:8px Helvetica,Arial,sans-serif;color:#5b7480">
+<div style="text-align:center;margin-bottom:4px">Created on this computer with TIDE, ${date}. Nothing left this computer.</div>
+<div style="display:flex;justify-content:space-between"><span>* Adult and juvenile counts are not recorded in this prototype of TIDE.</span>
+<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div></div>`;
+}
 
 /* ───────────── Folders and file types ───────────── */
 

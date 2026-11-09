@@ -101,8 +101,7 @@ export function ReportView({
   const exportPdf = async () => {
     setPdfError("");
     try {
-      const [report, model] = await Promise.all([api.surveys.report(survey.id), api.model.status()]);
-      setPrinting({ report, modelName: model.demo ? "Demo mode (sample data)" : model.name });
+      setPrinting({ report: await api.surveys.report(survey.id) });
     } catch (e) {
       setPdfError((e as Error).message);
     }

@@ -49,10 +49,7 @@ const render = (r: SurveyReport, open = 0) =>
     <ReportDocument
       survey={survey}
       report={r}
-      open={Array.from({ length: open }, () => ({ key: "review" as const, text: "To check" }))}
-      modelName="Test model"
-      createdOn="2026-11-08"
-    />,
+      open={Array.from({ length: open }, () => ({ key: "review" as const, text: "To check" }))}    />,
   );
 
 describe("downloadable report", () => {
@@ -62,6 +59,9 @@ describe("downloadable report", () => {
       expect(html).toContain(text);
     expect(html).not.toContain("Local");
     expect(html).not.toContain("Reviewed by");
+    expect(html).toContain("Reviewer");
+    expect(html).not.toContain("Surveyor");
+    expect(html).not.toContain("Model (at export)");
     expect(html).toContain('alt="Coastal Action"');
   });
 

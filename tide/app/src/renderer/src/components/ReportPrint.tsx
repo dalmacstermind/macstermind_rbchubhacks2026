@@ -4,11 +4,10 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { SurveyInfo, SurveyReport } from "../../../shared/api";
 import type { OpenItem } from "../../../shared/survey";
-import { today } from "../ui";
 import "../report.css";
 import { ReportDocument } from "./ReportDocument";
 
-export type ReportPrintData = { report: SurveyReport; modelName: string };
+export type ReportPrintData = { report: SurveyReport };
 
 const MAX_WAIT_MS = 8000; // a picture that won't load must never block the export
 
@@ -41,7 +40,7 @@ export function ReportPrint({
   }, []);
 
   return createPortal(
-    <ReportDocument survey={survey} report={data.report} open={open} modelName={data.modelName} createdOn={today()} />,
+    <ReportDocument survey={survey} report={data.report} open={open} />,
     document.body,
   );
 }

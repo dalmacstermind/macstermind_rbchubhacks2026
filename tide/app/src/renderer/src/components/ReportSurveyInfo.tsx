@@ -13,15 +13,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function ReportSurveyInfo({
-  survey,
-  report,
-  modelName,
-}: {
-  survey: SurveyInfo;
-  report: SurveyReport;
-  modelName: string;
-}) {
+export function ReportSurveyInfo({ survey, report }: { survey: SurveyInfo; report: SurveyReport }) {
   const { videos } = report.results;
   const sizes = report.files.map((f) => f.sizeBytes);
   const known = sizes.every((s) => s !== null) && sizes.length > 0;
@@ -35,7 +27,7 @@ export function ReportSurveyInfo({
         <h2>Survey info</h2>
         <div className="r-card r-two">
           <div>
-            <Row label="Surveyor" value={survey.createdBy || "Not recorded"} />
+            <Row label="Reviewer" value={survey.createdBy || "Not recorded"} />
             <Row label="Survey #" value={String(survey.id)} />
             <Row label="Survey site" value={survey.site} />
             <Row label="Survey date" value={niceDate(survey.surveyDate)} />
@@ -44,9 +36,7 @@ export function ReportSurveyInfo({
             <Row label="Input file(s)" value={String(report.files.length)} />
             <Row label="Input file type(s)" value={fileTypes(report.files.map((f) => f.name))} />
             <Row label="Input file size" value={known ? fileSize(total) : "Not recorded"} />
-            <Row label="Transect / STAT" value={joined(places, "Not read")} />
-            <Row label="Model (at export)" value={modelName} />
-          </div>
+            <Row label="Transect / STAT" value={joined(places, "Not read")} />          </div>
         </div>
       </section>
 
