@@ -260,6 +260,8 @@ export type VideoResult = {
   clarityMax: number | null;
   clarityTrend: "improving" | "worsening" | "stable" | null;
   visibility: string | null;
+  /** true: chosen by staff; false: suggested from the clarity index. */
+  visibilityConfirmed: boolean;
   reviewed: boolean;
   unknownsRemaining: number;
 };
@@ -273,6 +275,37 @@ export type ImageResult = {
   unknown: number;
   notes: string;
   needsReview: boolean;
+};
+
+export type ReportSpecies = {
+  speciesId: string;
+  common: string;
+  scientific: string;
+  totalAtPoints: number;
+  pointsSeen: number;
+  inImages: number;
+  seenBetweenPoints: boolean;
+  humanApproved: boolean;
+  picture: string | null;
+  referencePicture: string | null;
+};
+
+/** GET /surveys/{id}/report. Every number is worked out by the back end. */
+export type SurveyReport = {
+  results: SurveyResults;
+  files: { name: string; sizeBytes: number | null }[];
+  isSampleData: boolean;
+  identifiedSpecies: number;
+  aiOnly: number;
+  humanApproved: number;
+  nativeNoted: number;
+  invasiveNoted: number;
+  unusualNoted: number;
+  statusNotNoted: number;
+  unidentifiedFish: number;
+  invertebrates: number;
+  pointsTotal: number;
+  species: ReportSpecies[];
 };
 
 export type SurveyResults = {
@@ -457,6 +490,7 @@ export type TideApi = {
     /** Match the survey's fish again against the current reference pictures. */
     reidentify: (id: number) => Promise<Reidentified>;
     results: (id: number) => Promise<SurveyResults>;
+    report: (id: number) => Promise<SurveyReport>;
     unknowns: (id: number) => Promise<Unknowns>;
     /** Compare the AI's point counts with hand counts: a CSV file, or (no path) the points staff reviewed. */
     evaluate: (id: number, csvPath?: string) => Promise<Evaluation>;

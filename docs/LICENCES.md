@@ -47,6 +47,12 @@ every photo with its observation link, the photographer's attribution and its li
 shows the credit as each picture's source. CC-BY requires that credit to stay with the photo
 wherever it is shown or shipped (for example, include the list with the installer).
 
+## Brand assets
+
+| Asset | Source | Licence | Used for | Notes |
+|---|---|---|---|---|
+| Coastal Action logo (`app/src/renderer/src/assets/coastal-action-seal.png`) | coastalaction.org, resized | © Coastal Action; not openly licensed | Banner of the downloadable PDF report | **Needs Coastal Action's permission** before the app ships. Bundled, so the report stays offline |
+
 ## Models and data
 
 | Component | Version | Licence | Notes |

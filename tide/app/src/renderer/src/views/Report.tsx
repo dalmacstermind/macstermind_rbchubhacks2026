@@ -14,6 +14,7 @@ import { api } from "../api";
 import { ExportMenu } from "../components/ExportMenu";
 import { MatchAgainButton } from "../components/MatchAgainButton";
 import { CountProgress } from "../components/CountProgress";
+import { ReportPrint, type ReportPrintData } from "../components/ReportPrint";
 import { NotCountedYet } from "../components/NotCountedYet";
 import { ProtocolResults, type SurveyCountProgress } from "../components/ProtocolResults";
 import { SurveyDoneCard } from "../components/SurveyDoneCard";
@@ -68,6 +69,8 @@ export function ReportView({
   const [saved, setSaved] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [printing, setPrinting] = useState<ReportPrintData | null>(null); // the PDF's page, while it's being made
+  const [pdfError, setPdfError] = useState("");
   const [counting, setCounting] = useState<SurveyCountProgress | null>(null); // pictures come when counting is done
   const open = openItems(s, qc ?? undefined, survey);
   // Videos wait for a person before they're counted, so an empty report often means "not looked at yet".
@@ -93,9 +96,26 @@ export function ReportView({
     const path = await window.desktop.saveXlsx(fileName, buf);
     if (path) setSaved(path);
   };
+  // Making the PDF has two halves: fetch the report and draw its page (hidden on screen), then, once
+  // its pictures have loaded (ReportPrint calls savePrinted), ask where to save it and print that page.
   const exportPdf = async () => {
-    const path = await window.desktop.savePdf(fileName);
-    if (path) setSaved(path);
+    setPdfError("");
+    try {
+      const [report, model] = await Promise.all([api.surveys.report(survey.id), api.model.status()]);
+      setPrinting({ report, modelName: model.demo ? "Demo mode (sample data)" : model.name });
+    } catch (e) {
+      setPdfError((e as Error).message);
+    }
+  };
+  const savePrinted = async () => {
+    try {
+      const path = await window.desktop.savePdf(fileName);
+      if (path) setSaved(path);
+    } catch (e) {
+      setPdfError((e as Error).message);
+    } finally {
+      setPrinting(null);
+    }
   };
   const go = (item: OpenItem) => {
     if (item.key === "qc") onQc();
@@ -119,6 +139,7 @@ export function ReportView({
         />
       )}
       {editing && <EditSurvey data={data} onClose={() => setEditing(false)} onSaved={onChanged} />}
+      {printing && <ReportPrint survey={survey} open={open} data={printing} onReady={() => void savePrinted()} />}
       <Header eyebrow={`Step 2 of 4 · ${survey.site}`} title="Counting">
         <MatchAgainButton surveyId={survey.id} onDone={onChanged} />
         <button onClick={() => onReview("all")} className={btnGhost}>
@@ -131,6 +152,11 @@ export function ReportView({
         />
       </Header>
       <div className="space-y-6 px-10 py-8">
+        {pdfError && (
+          <Alert tone="danger" icon="!" title="The PDF couldn't be made">
+            {pdfError}
+          </Alert>
+        )}
         {saved && (
           <div className="flex items-center justify-between rounded-xl border border-success/40 bg-success/10 px-5 py-3 text-sm print:hidden">
             <span>
