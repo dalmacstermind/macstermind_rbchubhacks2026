@@ -8,6 +8,7 @@ import type {
   QcData,
   Reference,
   SurveyData,
+  SurveyReport,
   SurveyResults,
   Unknowns,
   Video,
@@ -147,6 +148,17 @@ export const api: TideApi = {
         videos: r.videos.map((v) => ({
           ...v,
           points: v.points.map((p) => ({ ...p, clip: p.clip ? imageUrl(p.clip) : null })),
+        })),
+      };
+    },
+    async report(id) {
+      const r = await http<SurveyReport>("GET", `/surveys/${id}/report`);
+      return {
+        ...r,
+        species: r.species.map((s) => ({
+          ...s,
+          picture: s.picture ? imageUrl(s.picture) : null,
+          referencePicture: s.referencePicture ? imageUrl(s.referencePicture) : null,
         })),
       };
     },

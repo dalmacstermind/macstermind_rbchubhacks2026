@@ -236,11 +236,23 @@ function registerIpc() {
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     });
     if (r.canceled || !r.filePath) return null;
-    const pdf = await e.sender.printToPDF({ printBackground: true, pageSize: "Letter", landscape: true });
+    const pdf = await e.sender.printToPDF({
+      printBackground: true,
+      pageSize: "Letter",
+      margins: { top: 0.45, bottom: 0.7, left: 0.5, right: 0.5 },
+      displayHeaderFooter: true,
+      headerTemplate: "<span></span>",
+      footerTemplate: REPORT_FOOTER,
+    });
     writeFileSync(r.filePath, pdf);
     return r.filePath;
   });
 }
+
+// Printed at the bottom of every page of the PDF report. Chromium fills in the page numbers.
+const REPORT_FOOTER = `<div style="width:100%;margin:0 0.5in;display:flex;justify-content:space-between;
+font:8px Helvetica,Arial,sans-serif;color:#5b7480"><span>* Adult and juvenile counts are not recorded in this prototype of TIDE.</span>
+<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`;
 
 /* ───────────── Folders and file types ───────────── */
 

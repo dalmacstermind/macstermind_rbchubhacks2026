@@ -101,6 +101,7 @@ on every request, so labels and point edits show up at once.
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/surveys/{id}/results` | | `SurveyResults` |
+| GET | `/surveys/{id}/report` | | `SurveyReport`: the downloadable report's numbers (identified species, staff-noted status totals, species rows with pictures, input files) |
 | PATCH | `/videos/{id}/details` | `{recordedAt?, transect?, stat?, visibility?}` | `204`. Recording details; the window itself is confirmed with `PATCH /videos/{id}` below |
 | POST | `/videos/{id}/count` | header `X-TIDE-User` | `204`. Count the confirmed window again (after it was stopped, failed or interrupted). `400` no person; `404`; `409` already counting; `422` window not confirmed |
 | POST | `/videos/{id}/count/stop` | header `X-TIDE-User` | `204`. Stop counting (a waiting count stops at once, a running one at its next picture); `countDetail` becomes "Counting stopped by <name>". `400` no person; `404`; `409` not counting |

@@ -24,6 +24,7 @@ export function SpeciesDetails({
           {sp.id === UNKNOWN ? (
             <span className="text-muted-foreground">Used when the species can't be told</span>
           ) : (
+            <span className="flex flex-wrap items-center gap-3">
             <select
               value={sp.status}
               aria-label={`Status of ${sp.common}`}
@@ -36,6 +37,13 @@ export function SpeciesDetails({
                 </option>
               ))}
             </select>
+              {/* The report only uses a status a person has set or confirmed, never the shipped list's value. */}
+              {!sp.statusNoted && (
+                <button type="button" className="text-sm text-primary hover:underline" onClick={() => onStatus(sp.status)}>
+                  Confirm this status
+                </button>
+              )}
+            </span>
           )}
         </dd>
         <dt className="text-muted-foreground">Added by</dt>

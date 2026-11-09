@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tide import report as av_report
 from tide import results as av_results
 from tide.config import load_vision_config
 from tide.detect import box_iou
@@ -21,8 +22,9 @@ from tide.trends import TrendFilters, TrendVideo, build_trends
 
 from .db import Database
 from .settings import survey_protocol
-from .schemas import (AiPointCount, Box, EvaluationOut, ImageOut, LabelOut, PointOut, Suggestion, SurveyResults,
-                      TrendsOut, UnknownFish, Unknowns, UnknownSource, VideoOut)
+from .schemas import (AiPointCount, Box, EvaluationOut, ImageOut, LabelOut, PointOut, ReportFile, ReportSpecies,
+                      Suggestion, SurveyReport, SurveyResults, TrendsOut, UnknownFish, Unknowns, UnknownSource,
+                      VideoOut)
 
 
 def _registry(db: Database) -> dict[str, str]:
@@ -60,7 +62,8 @@ def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResul
             mean_count=s.mean_count, mean_count_ai=s.mean_count_ai,
             species_richness=s.species_richness, species_found=s.species_found, clarity_index=s.clarity_index,
             clarity_min=s.clarity_min, clarity_max=s.clarity_max, clarity_trend=s.clarity_trend,
-            visibility=s.visibility, reviewed=s.reviewed, unknowns_remaining=remaining.get(s.name, 0),
+            visibility=s.visibility, visibility_confirmed=bool(v["visibility"]), reviewed=s.reviewed,
+            unknowns_remaining=remaining.get(s.name, 0),
             points=[PointOut(
                 id=p.id, point_no=p.ai.point_no, timestamp_s=p.ai.timestamp_s, total_fish=p.total_fish,
                 invertebrates=p.invertebrates, per_species=p.ai.per_species, unknown=p.ai.unknown,
@@ -74,6 +77,40 @@ def build_results(db: Database, survey_id: int, threshold: float) -> SurveyResul
     images = [ImageOut(**asdict(c)) for c in av_results.image_counts(db.photo_sightings(survey_id), labels, threshold)]
     return SurveyResults(videos=videos, images=images, unknowns_remaining=sum(remaining.values()),
                          visibility_categories=list(protocol.visibility_categories))
+
+
+# ── Downloadable report ──
+
+def build_report(db: Database, survey_id: int, info) -> SurveyReport:
+    """The numbers the downloadable report shows. Nothing here is worked out in the app."""
+    protocol = survey_protocol(db, survey_id)
+    species = {s.id: s for s in db.list_species() if s.id != UNKNOWN_ID}
+    labels = _labels(db, survey_id, _registry(db))
+    summaries = [s for _, s in _video_summaries(db, survey_id, info.threshold, protocol, labels)]
+    images = av_results.image_counts(db.photo_sightings(survey_id), labels, info.threshold)
+    found = av_report.findings(summaries, images, labels,
+                               {sid: (s.status if s.status_noted else None) for sid, s in species.items()})
+    rows = db.survey_detections(survey_id)
+    best: dict[str, tuple] = {}  # species → (a person confirmed it, confidence, track): the picture shown
+    for r in rows:
+        label = labels.get(r["track_id"]) if r["track_id"] else None
+        if label and label.species:
+            rank = (label.human, r["confidence"], r["track_id"])
+            if rank > best.get(label.species, (False, -1.0, "")):
+                best[label.species] = rank
+    sizes = db.survey_file_sizes(survey_id)
+    return SurveyReport(
+        results=build_results(db, survey_id, info.threshold),
+        files=[ReportFile(name=n, size_bytes=sizes[i] if len(sizes) == len(info.files) else None)
+               for i, n in enumerate(info.files)],
+        is_sample_data=db.survey_has_sample_data(survey_id),
+        **{k: v for k, v in asdict(found).items() if k != "species"},
+        species=[ReportSpecies(
+            species_id=f.species_id, common=species[f.species_id].common, scientific=species[f.species_id].scientific,
+            total_at_points=f.total_at_points, points_seen=f.points_seen, in_images=f.in_images,
+            seen_between_points=f.seen_between_points, human_approved=f.human_approved,
+            picture=f"/surveys/{survey_id}/tracks/{best[f.species_id][2]}/crop" if f.species_id in best else None,
+            reference_picture=species[f.species_id].thumbnail) for f in found.species])
 
 
 # ── Trends ──

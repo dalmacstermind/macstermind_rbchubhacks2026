@@ -37,6 +37,7 @@ class Species(SpeciesIn):
     id: str
     custom: bool = False
     added_at: str = ""
+    status_noted: bool = False  # a person set or confirmed the status (the shipped list's values don't count)
     reference_count: int = 0  # reference pictures used to identify this species (BioCLIP 2)
     thumbnail: Optional[str] = None  # URL path of the first reference picture (Species Registry card)
 
@@ -358,6 +359,7 @@ class VideoOut(Model):
     clarity_max: Optional[float] = None
     clarity_trend: Optional[str] = None
     visibility: Optional[str] = None
+    visibility_confirmed: bool = False  # True: chosen by staff; False: suggested from the clarity index
     reviewed: bool
     unknowns_remaining: int = 0
 
@@ -378,6 +380,42 @@ class SurveyResults(Model):
     images: list[ImageOut]
     unknowns_remaining: int
     visibility_categories: list[str]
+
+
+class ReportFile(Model):
+    name: str
+    size_bytes: Optional[int] = None  # None: the survey started before sizes were recorded
+
+
+class ReportSpecies(Model):
+    species_id: str
+    common: str
+    scientific: str
+    total_at_points: int
+    points_seen: int
+    in_images: int
+    seen_between_points: bool
+    human_approved: bool
+    picture: Optional[str] = None  # the best crop from this survey (URL path)
+    reference_picture: Optional[str] = None  # the first reference picture, if the crop can't be shown
+
+
+class SurveyReport(Model):
+    """Everything the downloadable report shows beyond the survey details. Counted here, only displayed in the app."""
+    results: SurveyResults
+    files: list[ReportFile]
+    is_sample_data: bool
+    identified_species: int
+    ai_only: int
+    human_approved: int
+    native_noted: int
+    invasive_noted: int
+    unusual_noted: int
+    status_not_noted: int
+    unidentified_fish: int
+    invertebrates: int
+    points_total: int
+    species: list[ReportSpecies]
 
 
 class TrendPoint(Model):

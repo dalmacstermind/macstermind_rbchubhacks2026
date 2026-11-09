@@ -31,7 +31,7 @@ from .schemas import (AnalysisRequest, CountStatus, DetectionPatch, EvaluationIn
                       LabelResult, ModelStatus, Person, PointPatch, ProtocolCheck, ProtocolSettings,
                       ProtocolSettingsState, QcCountIn, QcData, Reference, ReferenceFromDetection, ReferencesIn,
                       Reidentified, Species, SpeciesIn, SpeciesPatch, Storage, SurveyData, SurveyInfo, SurveyPatch,
-                      SurveyResults, TrendsOut, Unknowns, Video, VideoDetailsPatch, VideoWindowPatch)
+                      SurveyReport, SurveyResults, TrendsOut, Unknowns, Video, VideoDetailsPatch, VideoWindowPatch)
 from .settings import ProtocolSettingsStore, SettingsError, apply_settings, points_per_window
 
 DATA_DIR = Path(os.environ.get("TIDE_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
@@ -459,6 +459,12 @@ def survey_results_route(survey_id: int):
     """Videos with per-point counts, MeanCount and species richness; per-image counts. Recalculated each time."""
     info = _survey_or_404(survey_id)
     return survey_results.build_results(db, survey_id, info.threshold)
+
+
+@app.get("/surveys/{survey_id}/report", response_model=SurveyReport, tags=["results"])
+def survey_report_route(survey_id: int):
+    """The numbers for the downloadable report, built from the same stored rows as the results."""
+    return survey_results.build_report(db, survey_id, _survey_or_404(survey_id))
 
 
 @app.get("/trends", response_model=TrendsOut, tags=["results"])

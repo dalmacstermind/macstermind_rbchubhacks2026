@@ -13,6 +13,7 @@ export type Species = {
   common: string;
   scientific: string;
   status: SpeciesStatus;
+  statusNoted?: boolean; // a person set or confirmed it (the report ignores the shipped list's values)
   habitat: string;
   /** Invertebrates (e.g. crabs) are counted separately from fish. */
   kind?: SpeciesKind;

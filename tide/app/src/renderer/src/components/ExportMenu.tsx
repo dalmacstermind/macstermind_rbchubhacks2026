@@ -46,7 +46,7 @@ export function ExportMenu({ onExcel, onPdf }: { onExcel: () => void; onPdf: () 
           </button>
           <button role="menuitem" className={item} onClick={() => pick(onPdf)}>
             <span className="font-medium">PDF report</span>
-            <span className="text-xs text-muted-foreground">This page, ready to print or share</span>
+            <span className="text-xs text-muted-foreground">A clear survey report, ready to print or share</span>
           </button>
         </div>
       )}
