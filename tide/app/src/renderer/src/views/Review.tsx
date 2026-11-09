@@ -412,7 +412,7 @@ export function ReviewView({
                 />
                 {det.speciesId !== NOT_FISH && !det.verified && !needsReview(det, threshold) && (
                   <p className="mt-4">
-                    <Chip tone="done">
+                    <Chip tone="done" wrap>
                       {aiSure(det)
                         ? `Counted automatically: TIDE is sure this is ${/^[aeiou]/i.test(name(det.speciesId)) ? "an" : "a"} ${name(det.speciesId)}.`
                         : `Counted automatically: TIDE was at least ${Math.round(threshold * 100)}% sure.`}{" "}
@@ -430,7 +430,7 @@ export function ReviewView({
                 )}
                 {det.possibleDrift && (
                   <p className="mt-2">
-                    <Chip tone="review" icon="≈">
+                    <Chip tone="review" icon="≈" wrap>
                       Moved exactly like the water: debris or weed? Not counted until you confirm.
                     </Chip>
                   </p>
@@ -513,34 +513,6 @@ export function ReviewView({
                 </p>
               </>
             )}
-          </div>
-
-          <div className="rounded-2xl border border-border bg-card p-5">
-            <div className="mb-2 font-display font-semibold">
-              In this picture · {plural(frame.detections.length, "box", "boxes")}
-            </div>
-            <div className="space-y-0.5">
-              {frame.detections.map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => setSel(d.id)}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
-                    sel === d.id ? "bg-secondary" : "hover:bg-secondary/60"
-                  }`}
-                >
-                  <span className={d.speciesId === NOT_FISH ? "text-muted-foreground line-through" : ""}>
-                    {name(d.speciesId)}
-                  </span>
-                  {needsReview(d, threshold) ? (
-                    <Chip tone="review">Check</Chip>
-                  ) : d.verified ? (
-                    <Chip tone="done">Checked</Chip>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">{Math.round(d.confidence * 100)}% sure</span>
-                  )}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </div>

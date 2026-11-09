@@ -113,11 +113,21 @@ const CHIP: Record<ChipTone, [string, string]> = {
   waiting: ["○", "border-border bg-card text-muted-foreground"],
   info: ["•", "border-border bg-secondary text-foreground"],
 };
-export function Chip({ tone, children, icon }: { tone: ChipTone; children: ReactNode; icon?: string }) {
+export function Chip({
+  tone,
+  children,
+  icon,
+  wrap = false,
+}: {
+  tone: ChipTone;
+  children: ReactNode;
+  icon?: string;
+  wrap?: boolean; // a long message: runs onto more lines instead of out of its frame
+}) {
   const [defIcon, cls] = CHIP[tone];
   return (
     <span
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}
+      className={`inline-flex gap-1 border px-2.5 py-0.5 text-xs font-medium ${wrap ? "items-start rounded-2xl" : "items-center whitespace-nowrap rounded-full"} ${cls}`}
     >
       <span aria-hidden>{icon ?? defIcon}</span>
       {children}
