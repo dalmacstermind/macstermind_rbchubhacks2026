@@ -311,13 +311,16 @@ class Database(ProtocolStore):
                         "VALUES (?, ?, ?, 'running', ?, ?)",
                         site, threshold, json.dumps(files), survey_date, created_by)
 
-    def update_survey(self, survey_id: int, site: str | None, survey_date: str | None) -> bool:
+    def update_survey(self, survey_id: int, site: str | None, survey_date: str | None,
+                      threshold: float | None = None) -> bool:
         if not self.one("SELECT 1 FROM surveys WHERE id = ?", survey_id):
             return False
         if site is not None and site.strip():
             self.run("UPDATE surveys SET site = ? WHERE id = ?", site.strip(), survey_id)
         if survey_date is not None:
             self.run("UPDATE surveys SET survey_date = ? WHERE id = ?", survey_date, survey_id)
+        if threshold is not None:
+            self.run("UPDATE surveys SET threshold = ? WHERE id = ?", threshold, survey_id)
         return True
 
     def set_survey_status(self, survey_id: int, status: str):

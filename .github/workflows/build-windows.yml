@@ -1,0 +1,50 @@
+# Builds TIDE for Windows on GitHub's Windows machines, so you can develop on a Mac.
+# Push to GitHub → Actions tab → "Build Windows installer" → Run workflow,
+# then download TIDE-x.y.z-win-x64.zip from the finished run's "Artifacts".
+name: Build Windows installer
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    # Pushing a build/... branch builds it too (workflow_dispatch only works once this is on main)
+    branches: ["build/**"]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true # model weights and reference pictures are stored with Git LFS
+
+      # 1. Back end → tide/backend/dist/tide-api/tide-api.exe
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tide/backend/requirements*.txt
+      - name: Build back end
+        working-directory: tide/backend
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest -q
+          pyinstaller tide-api.spec --noconfirm
+
+      # 2. App, zipped (bundles the back end from step 1)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tide/app/package-lock.json
+      - name: Build app and zip
+        working-directory: tide/app
+        run: |
+          npm ci
+          npm test
+          npm run dist:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TIDE-Windows
+          path: tide/app/release/*.zip
+          compression-level: 0 # already a zip: don't compress it again
+          if-no-files-found: error

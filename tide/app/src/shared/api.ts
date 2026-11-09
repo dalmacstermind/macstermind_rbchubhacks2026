@@ -452,7 +452,7 @@ export type TideApi = {
   surveys: {
     list: () => Promise<SurveyInfo[]>;
     get: (id: number) => Promise<SurveyData>;
-    update: (id: number, patch: { site?: string; surveyDate?: string }) => Promise<void>;
+    update: (id: number, patch: { site?: string; surveyDate?: string; threshold?: number }) => Promise<void>;
     remove: (id: number) => Promise<void>;
     /** Match the survey's fish again against the current reference pictures. */
     reidentify: (id: number) => Promise<Reidentified>;

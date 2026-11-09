@@ -1,6 +1,7 @@
-// The five survey steps as one row of tabs, directly below the top bar (CLAUDE.md, App frame).
+// The four survey steps as one row of tabs, directly below the top bar (CLAUDE.md, App frame).
 // Each tab is a normal button, so Tab moves between them and Enter opens one. Tabs that can't be
-// used yet are disabled, and the keyboard skips them.
+// used yet are disabled, and the keyboard skips them. Starting a new survey is the button at the top
+// of the Tools column (ToolsSidebar), not a step.
 import type { Page } from "../pages";
 
 type Step = { id: Page; label: string; enabled: boolean; badge?: number };
@@ -15,15 +16,14 @@ export function StepTabs({
   page: Page;
   go: (p: Page) => void;
   busy: boolean; // a survey is being counted: the other steps are locked until it finishes
-  hasSurvey: boolean; // a survey is open, so Report, Check the fish and Label can be used
-  toCheck: number; // fish waiting to be checked or named (badge on "Check the fish")
+  hasSurvey: boolean; // a survey is open, so Counting, Approve Findings and Label Unknown Fish can be used
+  toCheck: number; // fish waiting to be checked or named (badge on "Approve Findings")
 }) {
   const steps: Step[] = [
-    { id: "upload", label: "New survey", enabled: !busy },
-    { id: "processing", label: "Counting", enabled: false }, // a progress step, never clicked
-    { id: "report", label: "Report", enabled: hasSurvey && !busy },
-    { id: "review", label: "Check the fish", enabled: hasSurvey && !busy, badge: toCheck },
-    { id: "label", label: "Label unknown fish", enabled: hasSurvey && !busy },
+    { id: "processing", label: "Processing", enabled: false }, // a progress step, never clicked
+    { id: "report", label: "Counting", enabled: hasSurvey && !busy },
+    { id: "review", label: "Approve Findings", enabled: hasSurvey && !busy, badge: toCheck },
+    { id: "label", label: "Label Unknown Fish", enabled: hasSurvey && !busy },
   ];
   return (
     // overflow-x-auto: on narrow windows the row scrolls sideways instead of wrapping onto two lines.

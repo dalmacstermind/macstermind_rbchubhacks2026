@@ -9,6 +9,7 @@ without team and client approval.
 | Component | Version | Licence | Used for | Notes |
 |---|---|---|---|---|
 | opencv-python-headless | 5.0.0.93 | Apache 2.0 | Reading video frames, fallback clip writing | Wheels bundle an LGPL FFmpeg build (dynamically linked) |
+| imageio-ffmpeg | 0.8.1 | BSD-2-Clause (wrapper only) | Provides FFmpeg for context clips | The FFmpeg program inside is **GPL-3.0**: see Binaries below |
 | NumPy | 2.2.6 | BSD-3-Clause | Frame arrays | |
 | PyYAML | 6.0.3 | MIT | `config/*.yaml` | |
 | FastAPI, Uvicorn | see requirements.txt | MIT, BSD-3-Clause | Backend API | |
@@ -24,7 +25,7 @@ without team and client approval.
 
 | Component | Version | Licence | Used for | Notes |
 |---|---|---|---|---|
-| FFmpeg (with libx264) | not yet bundled | **GPL-2.0-or-later** (libx264 is GPL) | Cutting context clips as H.264 so they play in the app | Runs as a separate program (`clips.ffmpeg_path`), not linked into TIDE. Ship its licence text and a source offer with the installer |
+| FFmpeg (with libx264) | 9.0.2, inside the `imageio-ffmpeg` 0.8.1 wheel (Windows x64: `ffmpeg-win-x86_64-v9.0.2.exe`, SHA-256 `3256173f3f8bffd7df12227c68adf68025edb1832273a9530688a7bb1ed8edec`) | **GPL-3.0-or-later** for this build (`--enable-gpl --enable-version3 --enable-libx264`) | Cutting context clips as H.264 so they play in the app | Runs as a separate program, not linked into TIDE. **Needs team and client approval before it ships.** Ship its licence text and a source offer with the installer. H.264 is also patent-encumbered: check before any wider release |
 
 ## App (tide/app)
 

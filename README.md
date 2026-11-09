@@ -184,39 +184,90 @@ delete `backend/.venv` and do step 2 again.
 **The window opens but stays blank**
 Look at the terminal where you ran `npm run dev` for the error, then quit with Ctrl+C and run it again.
 
-## Building the Windows installer
+## Building TIDE for Windows
 
-Staff use Windows, so the installer is built on Windows: the back end with PyInstaller, then the app with electron-builder.
+Staff use Windows, so TIDE is built on Windows in two steps. It ships as a **`.zip` of the app
+folder**, not an installer (see "Why a .zip" below).
 
-**Easiest: GitHub Actions (no Windows PC needed).** Push to GitHub, open
-**Actions → Build Windows installer → Run workflow**, and download `TIDE-Setup-0.1.0.exe`
-from the finished run.
+1. **Back end → `tide-api.exe`** with PyInstaller, using the recipe in
+   [`tide/backend/tide-api.spec`](tide/backend/tide-api.spec). It makes one folder,
+   `tide/backend/dist/tide-api/`, with the config, the models (`models/`), FFmpeg and the ML
+   packages (PyTorch, rfdetr, open_clip, transformers) inside `_internal/`.
+2. **App → `TIDE-0.1.0-win-x64.zip`** with electron-builder
+   ([`tide/app/electron-builder.yml`](tide/app/electron-builder.yml)), which puts the folder from
+   step 1 in `resources/backend/`. `TIDE.exe` starts `tide-api.exe` itself (no window shows).
 
-**Or on a Windows PC:**
+### Easiest: GitHub Actions (no Windows PC needed)
+
+The workflow is [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml). It
+installs the back end, runs the back-end and app tests, then builds the zip. It runs when you:
+
+- **push a branch whose name starts with `build/`** (for example `build/windows-installer`), or
+- **push a tag starting with `v`** (for example `v0.1.0`), or
+- click **Actions → Build Windows installer → Run workflow** (only once the workflow file is on `main`).
+
+TIDE is built from the code **on that branch or tag**, so commit and push your changes first.
+
+**To download it:** open the finished run in the **Actions** tab, scroll to **Artifacts** and
+download **TIDE-Windows**. GitHub wraps it in another `.zip`: unzip that to get
+`TIDE-0.1.0-win-x64.zip`. Or from a terminal:
+
+```bash
+gh run download <run-id> -n TIDE-Windows -D TIDE-download
+```
+
+### Or on a Windows PC
+
+From the repo root. Needs **Python 3.11** (the back-end `.venv`, set up as in "Run it" above), Node 22, and about
+**15 GB of free disk space** (the back-end folder alone is over 5 GB). Model files come through
+Git LFS: run `git lfs pull` first.
 
 ```bat
-cd backend
+cd tide\backend
 .venv\Scripts\activate
+pip install -r requirements-dev.txt
 pyinstaller tide-api.spec --noconfirm
 cd ..\app
+npm ci
 npm run dist:win
 ```
 
-The installer appears in `app\release\`. It's unsigned, so Windows shows **"Windows protected
-your PC"**; click **More info → Run anyway**.
+The zip appears in `tide\app\release\` (the unzipped app is in `tide\app\release\win-unpacked\`). To check the back end on its own before step 2:
+run `dist\tide-api\tide-api.exe --port 51999` and open `http://127.0.0.1:51999/health`.
 
-**Install it on a real Windows laptop and run one survey before the demo.**
+### Installing
+
+Unzip `TIDE-0.1.0-win-x64.zip` somewhere permanent (for example `C:\TIDE`; about 7 GB), open the
+folder and run **`TIDE.exe`**. Keep all the files together: `TIDE.exe` needs the `resources` folder
+next to it. There's no installer, so make a desktop shortcut yourself (right-click `TIDE.exe` →
+**Show more options → Send to → Desktop**). To remove TIDE, delete the folder (survey data stays in
+`%APPDATA%\TIDE`).
+
+It's unsigned, so Windows shows **"Windows protected your PC"**; click **More info → Run anyway**.
+
+**Unzip it on a real Windows laptop and run one survey before the demo.**
 If Windows Defender complains about `tide-api.exe` (it happens with PyInstaller), that's the
 thing to sort out early.
+
+### Known problems
+
+- **Why a .zip, not an installer.** The app is about 7 GB unpacked (PyTorch's CUDA libraries ~3 GB,
+  models ~1.8 GB). An NSIS installer can't hold more than about 2 GB: the first CI build failed
+  there. A real installer would need a smaller app (CPU-only PyTorch saves ~3 GB, but the models
+  still don't fit) or the models downloaded separately after installing.
+- **`*.spec` is ignored** by the root `.gitignore` (PyInstaller template); `tide-api.spec` has an
+  exception there. Keep it if you change that file.
 
 ## Notes for the integration team
 
 - Always build the back end from a **clean virtual environment**. PyInstaller bundles whatever is
   installed, so stray packages make the app bigger.
 - The runtime is **PyTorch (CUDA build)**, per CLAUDE.md; it also runs on CPU. The packaged back end
-  is several GB with the models, so check the NSIS size limit early (CLAUDE.md, Packaging).
-- Ship the models next to the back end: `models.dir` in `config/app.yaml` is relative to the config
-  folder, so put `models/` beside `config/` (or add it to `datas` in `tide-api.spec`).
+  is several GB with the models, so it ships as a .zip, not an NSIS installer (see "Building TIDE for Windows").
+- FFmpeg (for context clips that play in the app) and the models are bundled by `tide-api.spec`
+  (`collect_data_files("imageio_ffmpeg", subdir="binaries")`, and `config/` + `models/` side by side
+  in `_internal/`, because `models.dir` in `config/app.yaml` is relative to the config folder).
+  FFmpeg's licence is GPL-3.0 (docs/LICENCES.md).
 - The detector is the **Community Fish Detector (RF-DETR)** until a fine-tuned YOLOX exists. Its licence
   needs approval: see `docs/LICENCES.md`.
 - Error messages in `HTTPException` and `Job.error` are shown to staff, so keep them plain English.

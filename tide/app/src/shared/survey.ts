@@ -240,7 +240,7 @@ export function frameCounts(frame: Frame, species: Species[], threshold: number)
   return { fish, invertebrates };
 }
 
-/** Things still open on a survey. Shown before export and in "Your surveys". */
+/** Things still open on a survey. Shown before export and on the Surveys page. */
 export type OpenItem = { key: "window" | "count" | "review" | "label" | "qc"; text: string };
 
 export function openItems(
@@ -267,6 +267,16 @@ export function openItems(
   else if (qc && qc.agreement !== null && qc.agreement < qc.target)
     items.push({ key: "qc", text: `Blind QC agreement ${Math.round(qc.agreement)}% (target ${qc.target}%)` });
   return items;
+}
+
+/**
+ * A survey is "Completed" when nothing is left to count or check: every analysis window is confirmed,
+ * every video is counted, no possible fish (below the certainty level) is left to confirm or dismiss,
+ * and no "Unknown/Unable to ID due to visibility" fish is left to label. Blind QC is a separate,
+ * sampled step and does not decide this; it still shows as its own open item.
+ */
+export function isSurveyComplete(open: OpenItem[]) {
+  return open.every((item) => item.key === "qc");
 }
 
 /** Percent difference used by blind QC: |yours − TIDE's| / TIDE's (0 vs 0 = 0%). */

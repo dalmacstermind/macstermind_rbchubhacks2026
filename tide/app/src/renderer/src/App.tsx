@@ -5,7 +5,7 @@ import { summarize, type Detection, type Species } from "../../shared/survey";
 import { api } from "./api";
 import { taskbarProgress, useCounts } from "./counts";
 import { notifyDesktop } from "./notifications";
-import { qcState, useOverview } from "./overview";
+import { qcState, useOverview, type OpenTarget } from "./overview";
 import { usePrefs } from "./prefs";
 import { ShortcutsSheet, useKeys } from "./shortcuts";
 import { AppTopBar } from "./components/AppTopBar";
@@ -22,10 +22,11 @@ import { QcView } from "./views/QC";
 import { LabelView } from "./views/Label";
 import { ReportView, type ReviewMode } from "./views/Report";
 import { ReviewView } from "./views/Review";
-import { SettingsView } from "./views/Settings";
+import { SettingsView, type LeaveGuard } from "./views/Settings";
 import { SpeciesView } from "./views/Species";
 import { TrendsView } from "./views/Trends";
-import { UploadView, type OpenTarget, type SurveyForm } from "./views/Upload";
+import { SurveysView } from "./views/Surveys";
+import { UploadView, type SurveyForm } from "./views/Upload";
 
 // Stands in for the person while "Who's working?" is open (see `locked` below).
 const NOBODY: Person = { name: "", role: "" };
@@ -85,25 +86,36 @@ export default function App() {
   );
   const qc = useMemo(() => (data && qcRaw ? qcState(data, qcRaw, species) : null), [data, qcRaw, species]);
 
+  // Settings fills this in while it has unsaved changes, so leaving it asks "Save your changes?" first.
+  const leaveGuard = useRef<LeaveGuard | null>(null);
+  const leaveSettings = (next: () => void) => (leaveGuard.current ? leaveGuard.current(next) : next());
+
   const go = (p: Page) => {
-    if (p === "upload" || p === "qc") void reloadOverview();
-    if (p === "report" && data) void api.qc.get(data.survey.id).then(setQcRaw);
-    if (p === "qc") setQcSurvey(null);
-    setPage(p);
+    const open = () => {
+      if (p === "surveys" || p === "qc") void reloadOverview();
+      if (p === "report" && data) void api.qc.get(data.survey.id).then(setQcRaw);
+      if (p === "qc") setQcSurvey(null);
+      setPage(p);
+    };
+    if (p === "settings") open();
+    else leaveSettings(open);
   };
 
-  // Start fresh, like when the app first opens: close the current survey so steps 2–5 are greyed out
-  // again, and clear the form. The closed survey stays saved and can be reopened from "Your surveys".
-  const newSurvey = () => {
-    setData(null);
-    setQcRaw(null);
-    setFinished(null);
-    setReviewMode("all");
-    setError(null);
-    setFiles([]);
-    setForm({ ...form, site: "", surveyDate: "" });
-    go("upload");
-  };
+  // "Start a new survey" (top of the Tools column, and the finished-survey card on the Report): start
+  // fresh, like when the app first opens. Closing the current survey greys out the step tabs again, and
+  // the form is cleared. The closed survey stays saved and can be reopened from Tools → Surveys.
+  // Leaving Settings with unsaved changes asks first; nothing is cleared unless the person goes on.
+  const newSurvey = () =>
+    leaveSettings(() => {
+      setData(null);
+      setQcRaw(null);
+      setFinished(null);
+      setReviewMode("all");
+      setError(null);
+      setFiles([]);
+      setForm({ ...form, site: "", surveyDate: "" });
+      setPage("upload");
+    });
 
   const openSurvey = useCallback(async (id: number, target: OpenTarget = "report") => {
     const [d, q] = await Promise.all([api.surveys.get(id), api.qc.get(id)]);
@@ -127,7 +139,7 @@ export default function App() {
   const screensLocked = useRef(false);
   screensLocked.current = page === "processing" || confirmingSurvey !== null;
   const openFromNotification = (id: number) => {
-    if (!screensLocked.current) openSurvey(id).catch(() => undefined);
+    if (!screensLocked.current) leaveSettings(() => void openSurvey(id).catch(() => undefined));
   };
 
   // The windows dialog is done: unlock, and show what it changed straight away.
@@ -227,7 +239,7 @@ export default function App() {
           onShortcuts={() => setShortcuts(true)}
         />
         <div className="flex min-h-0 flex-1">
-          <ToolsSidebar page={page} go={go} busy={busy} />
+          <ToolsSidebar page={page} go={go} onNewSurvey={newSurvey} busy={busy} />
           <div className="flex min-w-0 flex-1 flex-col">
             <StepTabs
               page={page}
@@ -236,7 +248,7 @@ export default function App() {
               hasSurvey={!!data}
               toCheck={summary ? summary.toReview + summary.toLabel : 0}
             />
-            <CountingBanner counts={counts} busy={busy} onOpen={(id) => void openSurvey(id)} />
+            <CountingBanner counts={counts} busy={busy} onOpen={(id) => leaveSettings(() => void openSurvey(id))} />
             <main className="min-h-0 flex-1 overflow-auto">
               {page === "upload" && (
                 <UploadView
@@ -246,9 +258,21 @@ export default function App() {
                   setForm={setForm}
                   error={error}
                   onStart={start}
+                />
+              )}
+              {page === "surveys" && (
+                <SurveysView
                   overview={overview}
                   onOpen={(id, t) => void openSurvey(id, t)}
-                  onDeleted={() => void reloadOverview()}
+                  onDeleted={(id) => {
+                    // Deleting the survey that's open closes it, so the step tabs don't point at it.
+                    if (data?.survey.id === id) {
+                      setData(null);
+                      setQcRaw(null);
+                      setFinished(null);
+                    }
+                    void reloadOverview();
+                  }}
                 />
               )}
               {page === "processing" && (
@@ -349,7 +373,7 @@ export default function App() {
                 />
               )}
               {page === "species" && <SpeciesView species={species} setSpecies={setSpecies} person={who} />}
-              {page === "settings" && <SettingsView person={who} />}
+              {page === "settings" && <SettingsView person={who} leaveGuard={leaveGuard} />}
             </main>
           </div>
         </div>

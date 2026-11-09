@@ -80,7 +80,7 @@ def _cfg():
 
 
 def test_species_match_rules():
-    cfg = _cfg()
+    cfg = replace(_cfg(), best_match=False)  # only clear matches named
     a, b = np.eye(4, dtype=np.float32)[0], np.eye(4, dtype=np.float32)[1]
     index = ReferenceIndex.build([("cod", a), ("cunner", b)])
     sure = match(a[None], index, cfg)
@@ -92,6 +92,21 @@ def test_species_match_rules():
     assert match(a[None], ReferenceIndex(), cfg).label == UNKNOWN  # no references yet
     alone = match(a[None], ReferenceIndex.build([("cod", a)]), cfg)  # one species: suggest, never fill in
     assert alone.label == UNKNOWN and alone.top_k[0][0] == "cod" and "Only one species" in alone.reason
+
+
+def test_best_match_names_the_closest_species_and_says_why():
+    cfg = _cfg()
+    assert cfg.best_match  # app.yaml default: staff don't name thousands of fish by hand
+    a, b = np.eye(4, dtype=np.float32)[0], np.eye(4, dtype=np.float32)[1]
+    index = ReferenceIndex.build([("cod", a), ("cunner", b)])
+    assert match(a[None], index, cfg).reason == ""  # a clear match needs no explanation
+    near_a = np.array([0.6, 0.5, np.sqrt(1 - 0.61), 0], np.float32)  # closer to cod, but not clearly
+    r = match(near_a[None], index, cfg)
+    assert r.label == "cod" and "Closest match" in r.reason
+    far = match(np.eye(4, dtype=np.float32)[2][None], index, cfg)
+    assert far.label in ("cod", "cunner") and "not like any species" in far.reason
+    assert match(a[None], ReferenceIndex(), cfg).label == UNKNOWN  # nothing to compare with
+    assert match(np.zeros((0, 4), np.float32), index, cfg).label == UNKNOWN  # no crop
 
 
 def test_crop_box_pads_and_rejects_tiny_boxes():

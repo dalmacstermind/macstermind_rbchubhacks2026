@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Person, SurveyData } from "../../../shared/api";
 import {
   UNKNOWN,
+  isSurveyComplete,
   openItems,
   type OpenItem,
   type Species,
@@ -118,13 +119,10 @@ export function ReportView({
         />
       )}
       {editing && <EditSurvey data={data} onClose={() => setEditing(false)} onSaved={onChanged} />}
-      <Header eyebrow={`Step 3 of 4 · ${survey.site}`} title="Survey report">
+      <Header eyebrow={`Step 2 of 4 · ${survey.site}`} title="Counting">
         <MatchAgainButton surveyId={survey.id} onDone={onChanged} />
         <button onClick={() => onReview("all")} className={btnGhost}>
-          Check the fish
-        </button>
-        <button onClick={onNewSurvey} className={btnGhost}>
-          + New survey
+          Approve Findings
         </button>
         <ExportMenu
           onExcel={() => (open.length ? setChecking(true) : void exportXlsx())}
@@ -142,7 +140,7 @@ export function ReportView({
             </button>
           </div>
         )}
-        {open.length === 0 && <SurveyDoneCard exported={!!saved} onNewSurvey={onNewSurvey} />}
+        {isSurveyComplete(open) && <SurveyDoneCard exported={!!saved} onNewSurvey={onNewSurvey} />}
         {s.toReview > 0 && (
           <Alert
             tone="warning"
@@ -223,7 +221,7 @@ export function ReportView({
             {s.rows.length === 0 ? (
               <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground">
                 {s.toReview > 0
-                  ? "No fish counted yet. Check the possible fish above to add them to the report."
+                  ? "No fish counted yet. Check the possible fish above to add them to the counts."
                   : survey.videosToCount > 0
                     ? `No fish so far, but ${plural(survey.videosToCount, "video")} still ${survey.videosToCount === 1 ? "hasn't" : "haven't"} been counted.`
                     : frames.length === 0
@@ -439,11 +437,12 @@ function ExportCheck({
 export function EditSurvey({ data, onClose, onSaved }: { data: SurveyData; onClose: () => void; onSaved: () => void }) {
   const [site, setSite] = useState(data.survey.site);
   const [date, setDate] = useState(data.survey.surveyDate);
+  const [sure, setSure] = useState(Math.round(data.survey.threshold * 100));
   const [error, setError] = useState("");
   const save = async () => {
     if (date > today()) return setError(FUTURE_DATE_MESSAGE);
     try {
-      await api.surveys.update(data.survey.id, { site, surveyDate: date });
+      await api.surveys.update(data.survey.id, { site, surveyDate: date, threshold: sure / 100 });
       onSaved();
       onClose();
     } catch (e) {
@@ -477,6 +476,20 @@ export function EditSurvey({ data, onClose, onSaved }: { data: SurveyData; onClo
             max={today()}
             onChange={(e) => setDate(e.target.value)}
           />
+        </Field>
+        <Field label={`Count a fish automatically when TIDE is at least ${sure}% sure`}>
+          <input
+            type="range"
+            min={10}
+            max={95}
+            step={5}
+            className="w-full"
+            value={sure}
+            onChange={(e) => setSure(Number(e.target.value))}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Less sure finds wait for a person in "Approve Findings". Counts update straight away.
+          </p>
         </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>

@@ -28,7 +28,7 @@ def test_defaults_match_the_protocol_table():
 def test_app_defaults():
     cfg = load_app_config()
     assert cfg.frames.seek_preroll_s == 1.0
-    assert cfg.clips.ffmpeg_path is None
+    assert cfg.clips.ffmpeg_path.is_file()  # the FFmpeg inside imageio-ffmpeg
     assert cfg.clips.ffmpeg_codec == "libx264"
     assert cfg.clips.opencv_fourcc == "mp4v"
 

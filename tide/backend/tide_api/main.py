@@ -279,7 +279,7 @@ def get_survey(survey_id: int):
 def update_survey(survey_id: int, body: SurveyPatch):
     if body.survey_date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.survey_date):
         raise HTTPException(422, "Date must look like 2025-08-20.")
-    if not db.update_survey(survey_id, body.site, body.survey_date):
+    if not db.update_survey(survey_id, body.site, body.survey_date, body.threshold):
         raise HTTPException(404, "No such survey")
     return Response(status_code=204)
 

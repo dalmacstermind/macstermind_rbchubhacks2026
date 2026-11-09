@@ -3,11 +3,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import cv2
 import pytest
 
 from tide import clips
 from tide.clips import ffmpeg_command, save_clip
-from tide.config import ClipsConfig
+from tide.config import ClipsConfig, load_app_config
 from tide.frames import iter_frames, probe_video
 from video_fixture import decode_index
 
@@ -81,6 +82,16 @@ def test_ffmpeg_failure_falls_back_to_opencv(synthetic_video, tmp_path, monkeypa
 def test_backwards_clip_is_an_error(synthetic_video, tmp_path):
     with pytest.raises(ValueError):
         save_clip(synthetic_video, 10, 5, tmp_path / "c.mp4", OPENCV_ONLY, preroll_s=1.0)
+
+
+def test_bundled_ffmpeg_makes_h264_clips_that_start_on_the_right_frame(synthetic_video, tmp_path):
+    out = tmp_path / "point_01.mp4"
+    assert save_clip(synthetic_video, 55, 65, out, load_app_config().clips, preroll_s=1.0) == "ffmpeg"
+    capture = cv2.VideoCapture(str(out))
+    fourcc = int(capture.get(cv2.CAP_PROP_FOURCC))
+    capture.release()
+    assert "".join(chr((fourcc >> 8 * i) & 255) for i in range(4)).lower() in ("avc1", "h264")  # Chromium can play it
+    assert first_frame_idx(out) == 550
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="FFmpeg is not installed on this machine")

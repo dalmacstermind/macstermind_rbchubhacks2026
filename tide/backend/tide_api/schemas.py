@@ -179,6 +179,7 @@ class CountStatus(Model):
 class SurveyPatch(Model):
     site: Optional[str] = None
     survey_date: Optional[str] = None  # YYYY-MM-DD, or "" to clear
+    threshold: Optional[float] = Field(None, ge=0, le=1)  # count a fish automatically at this certainty or higher
 
 
 class SurveyData(Model):
@@ -216,7 +217,7 @@ class AnalysisRequest(Model):
     site: str = ""
     survey_date: str = ""  # YYYY-MM-DD the footage was filmed; used by Trends
     person: str = ""  # who started it
-    threshold: float = Field(0.5, ge=0, le=1)
+    threshold: float = Field(0.4, ge=0, le=1)
     sampling: Literal[1, 2, 5] = 1  # pictures per second of video
     enhance: bool = True  # clear up murky water
     ignore_specks: bool = True  # drop tiny boxes (sediment, bubbles); size in app.yaml detect.speck_max_area_pct

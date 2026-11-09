@@ -14,7 +14,7 @@ export function SurveyDoneCard({ exported, onNewSurvey }: { exported: boolean; o
             {exported
               ? "Everything is checked and exported. You can start the next survey."
               : "Everything is checked. Export it, then start the next survey."}{" "}
-            This one stays saved under “Your surveys”.
+            This one stays saved in Tools → Surveys.
           </div>
         </div>
       </div>

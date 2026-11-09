@@ -1,4 +1,4 @@
-// "Label unknown fish": every fish the AI left as Unknown or Potential Novel Sighting, one card per
+// "Label Unknown Fish": every fish the AI left as Unknown or Potential Novel Sighting, one card per
 // tracked fish across the survey's videos and images. Labels are reversible, and the AI's own result
 // is kept by the back end. Counts (per point, MeanCount, richness) update after every label.
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -26,7 +26,7 @@ export function LabelView({
   species: Species[];
   setSpecies: (s: Species[]) => void;
   person: Person;
-  onChanged: () => void; // reload the survey so "Check the fish" and the report show the labels
+  onChanged: () => void; // reload the survey so "Approve Findings" and the report show the labels
 }) {
   const surveyId = data.survey.id;
   const [unknowns, setUnknowns] = useState<Unknowns | null>(null);
@@ -154,7 +154,7 @@ export function LabelView({
           }}
         />
       )}
-      <Header eyebrow={`Step 5 · ${data.survey.site}`} title="Label unknown fish">
+      <Header eyebrow={`Step 4 of 4 · ${data.survey.site}`} title="Label Unknown Fish">
         <span className="text-sm text-muted-foreground">
           {unknowns ? `${unknowns.remaining} still to label` : "Loading…"}
           {file && unknowns ? ` · ${unknowns.remainingByFile[file] ?? 0} in this file` : ""}
@@ -164,7 +164,7 @@ export function LabelView({
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <select className="input w-auto py-1.5" value={show} onChange={(e) => changeShow(e.target.value as Show)}>
-              <option value="todo">Still to label</option>
+              <option value="todo">Unlabeled</option>
               <option value="labelled">Labelled</option>
               <option value="all">All</option>
             </select>
