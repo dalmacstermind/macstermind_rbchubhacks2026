@@ -202,6 +202,7 @@ folder**, not an installer (see "Why a .zip" below).
 The workflow is [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml). It
 installs the back end, runs the back-end and app tests, then builds the zip. It runs when you:
 
+- **push to `release`** (including merging a pull request into it), or
 - **push a branch whose name starts with `build/`** (for example `build/windows-installer`), or
 - **push a tag starting with `v`** (for example `v0.1.0`), or
 - click **Actions → Build Windows installer → Run workflow** (only once the workflow file is on `main`).

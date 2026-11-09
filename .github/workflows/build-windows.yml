@@ -6,8 +6,9 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-    # Pushing a build/... branch builds it too (workflow_dispatch only works once this is on main)
-    branches: ["build/**"]
+    # Every push to release (e.g. a merged pull request) builds it; build/... branches are for
+    # trying a build. "Run workflow" (workflow_dispatch) only works once this file is on main.
+    branches: ["release", "build/**"]
 jobs:
   build:
     runs-on: windows-latest
