@@ -6,7 +6,7 @@ TIDE installs on Windows as **one app**. Inside it are two parts that run on the
 ```
  TIDE.exe (Electron)                                   tide-api.exe (FastAPI)
  ┌───────────────────────────┐   HTTP on 127.0.0.1 only    ┌─────────────────────────────┐
- │ React screens   app/      │ ─────────────────────────▶  │ backend/                    │
+ │ React screens   app/      │ ────────────────────────▶   │ backend/                    │
  │ starts & stops the back   │   (never leaves the PC,     │  video → pictures → model   │
  │ end, file pickers, PDFs   │    works with Wi-Fi off)    │  SQLite database, pictures  │
  └───────────────────────────┘                             └─────────────────────────────┘
@@ -211,8 +211,7 @@ folder**, not an installer (see "Why a .zip" below).
 The workflow is [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml). It
 installs the back end, runs the back-end and app tests, then builds the zip. It runs when you:
 
-- **push to `release`** (including merging a pull request into it), or
-- **push a branch whose name starts with `build/`** (for example `build/windows-installer`), or
+- **push to `release`** (including merging a pull request into it)
 - **push a tag starting with `v`** (for example `v0.1.0`), or
 - click **Actions → Build Windows installer → Run workflow** (only once the workflow file is on `main`).
 
@@ -259,14 +258,6 @@ It's unsigned, so Windows shows **"Windows protected your PC"**; click **More in
 If Windows Defender complains about `tide-api.exe` (it happens with PyInstaller), that's the
 thing to sort out early.
 
-### Known problems
-
-- **Why a .zip, not an installer.** The app is about 7 GB unpacked (PyTorch's CUDA libraries ~3 GB,
-  models ~1.8 GB). An NSIS installer can't hold more than about 2 GB: the first CI build failed
-  there. A real installer would need a smaller app (CPU-only PyTorch saves ~3 GB, but the models
-  still don't fit) or the models downloaded separately after installing.
-- **`*.spec` is ignored** by the root `.gitignore` (PyInstaller template); `tide-api.spec` has an
-  exception there. Keep it if you change that file.
 
 ## Notes for the integration team
 
