@@ -1,0 +1,44 @@
+# Coastal Action DRAFT Fish and Fish Habitat (FFH) Video Analysis Protocol settings.
+# The protocol is still a draft: change values here, never in code (CLAUDE.md, hard constraint 6).
+# Changes apply to new processing only.
+
+window:
+  trim_start_s: 60          # discard the first 60 s (camera settling, sediment)
+  trim_end_s: 60            # discard the last 60 s (retrieval)
+  max_extra_settle_s: 240   # extra settling allowed if sediment persists (a person confirms)
+  length_s: 900             # analysis window: 15 min
+  # Sediment check near the start (see propose_window in tide/protocol.py).
+  # PLACEHOLDERS: chosen on synthetic test videos (clear water scored 0.09–0.46, simulated
+  # sediment 0.85–1.20). Calibrate on real Coastal Action footage before relying on them.
+  settle_threshold: 0.6     # settled when frame change ÷ contrast stays below this
+  settle_scan_fps: 2        # frames per second read while checking for sediment
+  settle_hold_s: 10         # must stay below the threshold this long to count as settled
+  # Videos shorter than trim_start_s + length_s + trim_end_s (17 min). true: the whole usable clip is
+  # proposed as a SHORTER window (flagged everywhere, counts not comparable with full windows);
+  # false: such videos are flagged "too short" and not processed.
+  allow_short_videos: true
+
+subsample:
+  interval_s: 60            # one point every 60 s -> 15 points in a 15 min window
+  unit_s: 1                 # one analysed unit is 1 second
+  context_s: 5              # context viewed around each point: ±5 s (may become ±10 s)
+  first_point_offset_s: 0   # point 1 sits this far after the window start (to confirm with Coastal Action)
+  # Shorter windows only (window.allow_short_videos): points spread across the clip about this far
+  # apart, each in the middle of its slice, at most as many as a full window has. Not the protocol's
+  # 60 s spacing, so short-video counts stay flagged as not comparable.
+  short_window_interval_s: 2
+
+count:
+  tolerance_s: 0.5          # count an organism only if seen within ±0.5 s of the point
+  max_tolerance_s: 1.0      # never more than ±1 s
+
+richness:
+  scan_fps: 2               # sparse full-window scan for species richness: 2 frames per second
+
+qc:
+  sample_fraction: 0.10     # random ≥10% of points per video
+  max_pct_diff: 6           # pass if counts differ by less than 6%
+  min_agreement: 0.95       # re-annotate below 95% agreement
+
+visibility:
+  categories: ["<0.5 m", "0.5–1.0 m", "1.0–1.5 m", ">1.5 m"]

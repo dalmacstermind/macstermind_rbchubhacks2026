@@ -1,0 +1,24 @@
+# Builds TIDE for Windows as a .zip of the app folder (unzip, run TIDE.exe). Build the back end
+# first (see ../../README.md), then: npm run dist:win
+# Not an NSIS installer: the app is ~7 GB unpacked (PyTorch CUDA + models) and NSIS can't hold
+# more than ~2 GB.
+appId: org.tide.app
+productName: TIDE
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  # The packaged FastAPI back end (made by PyInstaller in ../backend/dist/tide-api)
+  - from: ../backend/dist/tide-api
+    to: backend
+win:
+  target:
+    - target: zip
+      arch: [x64]
+artifactName: TIDE-${version}-win-x64.${ext}
+# Faster to build and to unzip; the models and PyTorch hardly compress anyway.
+compression: store
+publish: null
